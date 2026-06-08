@@ -1,0 +1,9 @@
+
+> frontend@0.1.0 dev
+> next dev --hostname localhost --port 3001
+
+▲ Next.js 16.2.7 (Turbopack)
+- Local:         http://localhost:3001
+- Network:       http://localhost:3001
+✓ Ready in 671ms
+[?25h
