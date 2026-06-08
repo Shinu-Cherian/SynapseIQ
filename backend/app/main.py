@@ -34,6 +34,9 @@ async def lifespan(app: FastAPI):
     # 1. Create database tables automatically if they don't exist (Local Dev convenience)
     try:
         print("Initializing database tables...")
+        from sqlalchemy import text
+        with engine.begin() as conn:
+            conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
         Base.metadata.create_all(bind=engine)
         print("Database tables initialized successfully!")
     except Exception as e:
