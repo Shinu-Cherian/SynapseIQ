@@ -55,8 +55,8 @@ export default function WorkspacesPage() {
 
   return (
     <main className="workspace-page">
-      <header className="workspace-header">
-        <div>
+      <div className="w-full max-w-[1200px] mx-auto pb-4">
+        <header className="site-header">
           <Link className="brand-mark" href="/">
             <span className="brand-icon" aria-hidden="true">
               <span />
@@ -66,14 +66,26 @@ export default function WorkspacesPage() {
             </span>
             <span>SYNAPSEIQ</span>
           </Link>
-          <h1>Project Rooms</h1>
-          <p>Create a workspace room or enter one your team already uses.</p>
-        </div>
 
-        <button onClick={handleLogout} className="logout-button">
-          Log Out
-        </button>
-      </header>
+          <div className="site-nav" aria-hidden="true"></div>
+
+          <div className="nav-actions" style={{ justifySelf: 'end' }}>
+            <button onClick={handleLogout} className="nav-button">
+              Log Out
+            </button>
+          </div>
+        </header>
+
+        <div className="frame-rule" aria-hidden="true">
+          <span />
+          <span />
+        </div>
+      </div>
+
+      <div className="max-w-[1200px] mx-auto px-8 pt-8 pb-6">
+        <h1 className="text-4xl font-space font-bold uppercase tracking-tight mb-2">Project Rooms</h1>
+        <p className="text-sm font-medium">Create a workspace room or enter one your team already uses.</p>
+      </div>
 
       {error && <div className="workspace-error">{error}</div>}
 

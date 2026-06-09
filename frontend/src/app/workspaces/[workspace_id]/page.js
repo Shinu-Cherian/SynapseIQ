@@ -160,7 +160,7 @@ export default function WorkspaceHubPage() {
     setDashboardAiReport('Analyzing sprint statistics and generating AI recommendation report...')
     try {
       const report = await api.dashboard.aiReport(workspace_id)
-      setDashboardAiReport(report.summary_report)
+      setDashboardAiReport(report.weekly_ai_report)
     } catch (err) {
       setDashboardAiReport('Failed to generate AI report: ' + err.message)
     }
@@ -450,154 +450,133 @@ export default function WorkspaceHubPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#07080C] text-white flex items-center justify-center font-sans">
-        <p className="text-sm tracking-wider uppercase">Loading Workspace Shell...</p>
+      <div className="min-h-screen bg-[var(--paper)] text-[#1a1a1a] flex items-center justify-center font-space">
+        <p className="text-sm tracking-wider uppercase font-bold">Loading Workspace Shell...</p>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-[#07080C] flex flex-col font-sans text-[#EEEEEE]">
+    <div className="min-h-screen bg-[var(--paper)] flex flex-col font-inter text-[#1a1a1a]">
       {/* Top Header Bar */}
-      <header className="h-16 px-6 bg-[#10121D] border-b border-white/5 flex items-center justify-between sticky top-0 z-40">
-        <div className="flex items-center gap-3">
-          <span className="font-steelfish text-2xl font-black tracking-tight text-white cursor-pointer" onClick={() => router.push('/workspaces')}>
+      <header className="h-[72px] px-8 bg-[var(--paper)] border-b-2 border-black flex items-center justify-between sticky top-0 z-40">
+        <div className="flex items-center gap-4">
+          <span className="font-space text-xl font-bold tracking-tight cursor-pointer flex items-center gap-2" onClick={() => router.push('/workspaces')}>
+            <span className="grid grid-cols-2 gap-[2px]">
+              <span className="w-2.5 h-2.5 bg-black"></span><span className="w-2.5 h-2.5 bg-black"></span>
+              <span className="w-2.5 h-2.5 bg-black"></span><span className="w-2.5 h-2.5 bg-black"></span>
+            </span>
             SYNAPSEIQ
           </span>
-          <span className="text-xs text-white/30">/ Workspace: {workspace_id}</span>
+          <span className="text-sm font-semibold border-l-2 border-black pl-4">Workspace: {workspace_id}</span>
         </div>
 
-        <div className="flex items-center gap-6">
+        <div className="flex items-center gap-8">
           {/* Notifications Indicator */}
-          <div className="relative cursor-pointer" onClick={() => handleTabChange('notifications')}>
-            <span className="text-lg">🔔</span>
+          <div className="relative cursor-pointer hover:-translate-y-0.5 transition-transform" onClick={() => handleTabChange('notifications')}>
+            <span className="text-xl">🔔</span>
             {bellCount > 0 && (
-              <span className="absolute -top-1 -right-1 bg-[#EF8E01] text-black text-[9px] font-bold w-4 h-4 flex items-center justify-center rounded-full">
+              <span className="absolute -top-2 -right-2 bg-black text-white text-[10px] font-bold w-5 h-5 flex items-center justify-center border border-black shadow-[2px_2px_0_#1a1a1a]">
                 {bellCount}
               </span>
             )}
           </div>
 
-          <div className="text-right">
-            <div className="text-xs font-bold">{currentUser?.full_name}</div>
-            <div className="text-[10px] text-white/40">{currentUser?.email}</div>
+          <div className="text-right border-l-2 border-black pl-6">
+            <div className="text-sm font-bold">{currentUser?.full_name}</div>
+            <div className="text-xs opacity-70">{currentUser?.email}</div>
           </div>
         </div>
       </header>
 
       {/* Main Container */}
-      <div className="flex flex-grow h-[calc(100vh-64px)] overflow-hidden">
+      <div className="flex flex-grow h-[calc(100vh-72px)] overflow-hidden">
         {/* Sidebar Nav */}
-        <aside className="w-64 bg-[#10121D] border-r border-white/5 p-6 flex flex-col justify-between">
-          <div className="flex flex-col gap-2">
-            <h3 className="text-[10px] font-mono tracking-widest text-white/30 uppercase mb-4">MODULES</h3>
+        <aside className="w-72 bg-[var(--paper)] border-r-2 border-black p-6 flex flex-col justify-between z-10 shadow-[4px_0px_0_rgba(0,0,0,0.05)]">
+          <div className="flex flex-col gap-4">
+            <h3 className="text-xs font-space tracking-widest uppercase mb-2 font-bold border-b-2 border-black pb-2">Modules</h3>
             
-            <button
-              onClick={() => handleTabChange('dashboard')}
-              className={`w-full py-3 px-4 rounded-xl text-xs font-bold text-left transition-all ${activeTab === 'dashboard' ? 'bg-[#0038BD] text-white' : 'hover:bg-white/5 text-white/60'}`}
-            >
-              📊 Dashboard Analytics
-            </button>
-
-            <button
-              onClick={() => handleTabChange('chat')}
-              className={`w-full py-3 px-4 rounded-xl text-xs font-bold text-left transition-all ${activeTab === 'chat' ? 'bg-[#0038BD] text-white' : 'hover:bg-white/5 text-white/60'}`}
-            >
-              💬 Channel Chats
-            </button>
-
-            <button
-              onClick={() => handleTabChange('projects')}
-              className={`w-full py-3 px-4 rounded-xl text-xs font-bold text-left transition-all ${activeTab === 'projects' ? 'bg-[#0038BD] text-white' : 'hover:bg-white/5 text-white/60'}`}
-            >
-              📋 Projects & Kanban
-            </button>
-
-            <button
-              onClick={() => handleTabChange('documents')}
-              className={`w-full py-3 px-4 rounded-xl text-xs font-bold text-left transition-all ${activeTab === 'documents' ? 'bg-[#0038BD] text-white' : 'hover:bg-white/5 text-white/60'}`}
-            >
-              📂 Document Storage
-            </button>
-
-            <button
-              onClick={() => handleTabChange('meetings')}
-              className={`w-full py-3 px-4 rounded-xl text-xs font-bold text-left transition-all ${activeTab === 'meetings' ? 'bg-[#0038BD] text-white' : 'hover:bg-white/5 text-white/60'}`}
-            >
-              📅 Intelligent Meetings
-            </button>
-
-            <button
-              onClick={() => handleTabChange('ai')}
-              className={`w-full py-3 px-4 rounded-xl text-xs font-bold text-left transition-all ${activeTab === 'ai' ? 'bg-[#0038BD] text-white' : 'hover:bg-white/5 text-white/60'}`}
-            >
-              🧠 AI Knowledge Brain
-            </button>
+            {[
+              { id: 'dashboard', icon: '📊', label: 'Dashboard Analytics' },
+              { id: 'chat', icon: '💬', label: 'Channel Chats' },
+              { id: 'projects', icon: '📋', label: 'Projects & Kanban' },
+              { id: 'documents', icon: '📂', label: 'Document Storage' },
+              { id: 'meetings', icon: '📅', label: 'Intelligent Meetings' },
+              { id: 'ai', icon: '🧠', label: 'AI Knowledge Brain' },
+            ].map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => handleTabChange(tab.id)}
+                className={`w-full py-3 px-4 text-sm font-bold text-left transition-all border-2 border-black ${activeTab === tab.id ? 'bg-black text-white shadow-[4px_4px_0_var(--gold)] translate-x-1' : 'bg-white text-black shadow-[4px_4px_0_#1a1a1a] hover:-translate-y-0.5 hover:shadow-[4px_6px_0_#1a1a1a]'}`}
+              >
+                {tab.icon} <span className="ml-2">{tab.label}</span>
+              </button>
+            ))}
           </div>
 
           <button
             onClick={() => router.push('/workspaces')}
-            className="w-full py-3 border border-white/10 hover:bg-white/5 text-xs text-white/50 font-bold rounded-xl transition-all"
+            className="w-full py-3 mt-8 border-2 border-black bg-[var(--paper-lift)] text-sm text-black font-bold shadow-[4px_4px_0_#1a1a1a] hover:-translate-y-0.5 hover:shadow-[4px_6px_0_#1a1a1a] transition-all"
           >
             &larr; Switch Workspace
           </button>
         </aside>
 
         {/* Tab Content Window */}
-        <main className="flex-grow p-8 overflow-y-auto bg-[#07080C]">
+        <main className="flex-grow p-10 overflow-y-auto bg-[var(--paper)]">
           
           {/* --- TAB A: DASHBOARD ANALYTICS --- */}
           {activeTab === 'dashboard' && (
-            <div className="flex flex-col gap-8">
-              <h2 className="text-2xl font-bold">Workspace Overview</h2>
+            <div className="flex flex-col gap-10 max-w-6xl">
+              <h2 className="text-4xl font-space font-bold border-b-4 border-black pb-4">Workspace Overview</h2>
               {loadingStats ? (
-                <p className="text-sm text-white/40">Fetching statistics...</p>
+                <p className="text-sm font-bold uppercase tracking-wider">Fetching statistics...</p>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <div className="p-6 rounded-2xl bg-[#10121D] border border-white/5">
-                    <div className="text-white/40 text-[10px] uppercase font-mono mb-1">Total Members</div>
-                    <div className="text-3xl font-black">{workspaceMembers.length}</div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                  <div className="p-6 bg-white border-2 border-black shadow-[6px_6px_0_#1a1a1a]">
+                    <div className="text-sm font-bold uppercase tracking-widest border-b-2 border-black pb-2 mb-4">Total Members</div>
+                    <div className="text-5xl font-black font-space">{workspaceMembers.length}</div>
                   </div>
-                  <div className="p-6 rounded-2xl bg-[#10121D] border border-white/5">
-                    <div className="text-white/40 text-[10px] uppercase font-mono mb-1">Total Tasks</div>
-                    <div className="text-3xl font-black">{dashboardStats?.total_tasks || 0}</div>
+                  <div className="p-6 bg-white border-2 border-black shadow-[6px_6px_0_#1a1a1a]">
+                    <div className="text-sm font-bold uppercase tracking-widest border-b-2 border-black pb-2 mb-4">Total Tasks</div>
+                    <div className="text-5xl font-black font-space">{dashboardStats?.total_tasks || 0}</div>
                   </div>
-                  <div className="p-6 rounded-2xl bg-[#10121D] border border-white/5">
-                    <div className="text-white/40 text-[10px] uppercase font-mono mb-1">Completed Ratio</div>
-                    <div className="text-3xl font-black text-emerald-500">
+                  <div className="p-6 bg-[#e8e8e2] border-2 border-black shadow-[6px_6px_0_#1a1a1a]">
+                    <div className="text-sm font-bold uppercase tracking-widest border-b-2 border-black pb-2 mb-4">Completed Ratio</div>
+                    <div className="text-5xl font-black font-space text-[var(--green)]">
                       {dashboardStats?.completed_tasks || 0} / {dashboardStats?.total_tasks || 0}
                     </div>
                   </div>
                 </div>
               )}
 
-              <div className="p-8 rounded-2xl bg-[#10121D] border border-white/5">
-                <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6">
-                  <div>
-                    <h3 className="font-bold text-md">Invite Team Members</h3>
-                    <p className="text-xs text-white/40 mt-1">
+              <div className="p-8 bg-white border-2 border-black shadow-[8px_8px_0_#1a1a1a]">
+                <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-8">
+                  <div className="max-w-md">
+                    <h3 className="font-bold text-2xl font-space mb-2">Invite Team Members</h3>
+                    <p className="text-sm font-medium">
                       Add a company email, choose the workspace role, and send the room invite.
                     </p>
                   </div>
 
-                  <form onSubmit={handleInviteMember} className="flex flex-col md:flex-row gap-3 md:items-end">
-                    <div className="flex flex-col gap-2">
-                      <label className="text-[10px] font-mono uppercase text-white/40">Company Email</label>
+                  <form onSubmit={handleInviteMember} className="flex flex-col md:flex-row gap-4 md:items-end w-full lg:w-auto">
+                    <div className="flex flex-col gap-2 flex-grow">
+                      <label className="text-xs font-bold uppercase tracking-wider">Company Email</label>
                       <input
                         type="email"
                         required
                         placeholder="teammate@company.com"
                         value={inviteEmail}
                         onChange={(e) => setInviteEmail(e.target.value)}
-                        className="min-w-[240px] px-4 py-3 bg-black/40 border border-white/10 rounded-xl text-xs text-white focus:outline-none focus:border-[#EF8E01]"
+                        className="w-full px-4 py-3 bg-[var(--paper)] border-2 border-black text-sm font-medium focus:outline-none focus:bg-white transition-colors"
                       />
                     </div>
                     <div className="flex flex-col gap-2">
-                      <label className="text-[10px] font-mono uppercase text-white/40">Role</label>
+                      <label className="text-xs font-bold uppercase tracking-wider">Role</label>
                       <select
                         value={inviteRole}
                         onChange={(e) => setInviteRole(e.target.value)}
-                        className="px-4 py-3 bg-black/40 border border-white/10 rounded-xl text-xs text-white focus:outline-none focus:border-[#EF8E01]"
+                        className="px-4 py-3 bg-[var(--paper)] border-2 border-black text-sm font-bold focus:outline-none cursor-pointer"
                       >
                         <option value="Member">Member</option>
                         <option value="Admin">Admin</option>
@@ -606,7 +585,7 @@ export default function WorkspaceHubPage() {
                     <button
                       type="submit"
                       disabled={inviteLoading}
-                      className="px-5 py-3 rounded-xl bg-[#EF8E01] text-black font-semibold text-xs uppercase hover:opacity-90"
+                      className="px-6 py-3 bg-[var(--gold)] border-2 border-black text-black font-bold text-sm uppercase tracking-wider hover:-translate-y-0.5 hover:shadow-[4px_4px_0_#1a1a1a] transition-all whitespace-nowrap"
                     >
                       {inviteLoading ? 'Sending...' : 'Send Invite'}
                     </button>
@@ -614,26 +593,26 @@ export default function WorkspaceHubPage() {
                 </div>
 
                 {inviteMessage && (
-                  <p className="text-xs text-[#EF8E01] mt-4">{inviteMessage}</p>
+                  <p className="text-sm font-bold mt-6 bg-[var(--paper-lift)] border-2 border-black p-3 inline-block">{inviteMessage}</p>
                 )}
               </div>
 
               {/* AI Report Section */}
-              <div className="p-8 rounded-2xl bg-[#10121D] border border-white/5">
-                <div className="flex justify-between items-center mb-6">
+              <div className="p-8 bg-[var(--paper-lift)] border-2 border-black shadow-[8px_8px_0_#1a1a1a]">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-6">
                   <div>
-                    <h3 className="font-bold text-md">AI Weekly Manager Progress Report</h3>
-                    <p className="text-xs text-white/40">Aggregates workspace data using Groq Llama 3 summaries</p>
+                    <h3 className="font-bold text-2xl font-space mb-2">AI Weekly Progress Report</h3>
+                    <p className="text-sm font-medium">Aggregates workspace data using Groq Llama 3 summaries</p>
                   </div>
                   <button
                     onClick={triggerDashboardAiReport}
-                    className="px-5 py-2.5 rounded-xl bg-[#EF8E01] text-black font-semibold text-xs uppercase tracking-wider hover:opacity-90"
+                    className="px-6 py-3 bg-black text-white border-2 border-black font-bold text-sm uppercase tracking-wider hover:-translate-y-0.5 hover:shadow-[4px_4px_0_var(--gold)] transition-all whitespace-nowrap"
                   >
                     Analyze & Generate
                   </button>
                 </div>
                 {dashboardAiReport && (
-                  <div className="p-5 rounded-xl bg-black/40 border border-white/5 text-xs text-white/70 leading-relaxed whitespace-pre-line font-mono">
+                  <div className="p-6 bg-white border-2 border-black text-sm font-medium leading-relaxed whitespace-pre-line font-space shadow-[inset_4px_4px_0_rgba(0,0,0,0.05)]">
                     {dashboardAiReport}
                   </div>
                 )}
@@ -643,17 +622,17 @@ export default function WorkspaceHubPage() {
 
           {/* --- TAB B: TEAM CHAT --- */}
           {activeTab === 'chat' && (
-            <div className="flex h-full gap-6 overflow-hidden">
+            <div className="flex h-full gap-8 overflow-hidden max-w-[1400px]">
               {/* Left Panel: Channels List */}
-              <div className="w-1/4 bg-[#10121D] rounded-2xl border border-white/5 p-4 flex flex-col justify-between">
+              <div className="w-1/4 bg-white border-2 border-black shadow-[6px_6px_0_#1a1a1a] p-5 flex flex-col justify-between">
                 <div>
-                  <h3 className="text-xs font-mono uppercase tracking-widest text-white/30 mb-4">Channels</h3>
-                  <div className="flex flex-col gap-1.5">
+                  <h3 className="text-xs font-bold uppercase tracking-widest border-b-2 border-black pb-2 mb-4">Channels</h3>
+                  <div className="flex flex-col gap-2">
                     {channels.map((chan) => (
                       <button
                         key={chan.id}
                         onClick={() => handleSelectChannel(chan)}
-                        className={`w-full py-2.5 px-4 rounded-xl text-xs text-left ${selectedChannel?.id === chan.id ? 'bg-[#0038BD] text-white font-bold' : 'hover:bg-white/5 text-white/60'}`}
+                        className={`w-full py-3 px-4 border-2 border-black text-sm font-bold text-left transition-all ${selectedChannel?.id === chan.id ? 'bg-black text-white shadow-[2px_2px_0_var(--gold)] translate-x-1' : 'bg-white hover:-translate-y-0.5 hover:shadow-[2px_2px_0_#1a1a1a]'}`}
                       >
                         # {chan.name}
                       </button>
@@ -662,25 +641,25 @@ export default function WorkspaceHubPage() {
                 </div>
 
                 {/* Create Channel Form */}
-                <form onSubmit={handleCreateChannel} className="border-t border-white/5 pt-4 mt-4 flex flex-col gap-2">
+                <form onSubmit={handleCreateChannel} className="border-t-2 border-black pt-5 mt-5 flex flex-col gap-3">
                   <input
                     type="text"
                     required
                     placeholder="New channel name..."
                     value={newChanName}
                     onChange={(e) => setNewChanName(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white focus:outline-none"
+                    className="w-full px-3 py-2 bg-[var(--paper)] border-2 border-black text-sm focus:outline-none focus:bg-white"
                   />
                   <input
                     type="text"
                     placeholder="Description (optional)"
                     value={newChanDesc}
                     onChange={(e) => setNewChanDesc(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white focus:outline-none"
+                    className="w-full px-3 py-2 bg-[var(--paper)] border-2 border-black text-sm focus:outline-none focus:bg-white"
                   />
                   <button
                     type="submit"
-                    className="w-full py-2 bg-white/10 hover:bg-white/20 text-[10px] font-bold uppercase rounded-xl"
+                    className="w-full py-3 bg-[var(--paper-lift)] border-2 border-black text-black text-xs font-bold uppercase tracking-widest hover:-translate-y-0.5 hover:shadow-[4px_4px_0_#1a1a1a] transition-all"
                   >
                     + Add Channel
                   </button>
@@ -688,26 +667,26 @@ export default function WorkspaceHubPage() {
               </div>
 
               {/* Middle Panel: Active Chat Feed */}
-              <div className="flex-grow flex flex-col bg-[#10121D] rounded-2xl border border-white/5 overflow-hidden">
-                <div className="h-12 border-b border-white/5 px-6 flex items-center justify-between">
-                  <span className="font-bold text-sm"># {selectedChannel?.name}</span>
-                  <span className="text-xs text-white/40">{selectedChannel?.description}</span>
+              <div className="flex-grow flex flex-col bg-white border-2 border-black shadow-[6px_6px_0_#1a1a1a] overflow-hidden">
+                <div className="h-16 border-b-2 border-black px-6 flex items-center justify-between bg-[var(--paper-lift)]">
+                  <span className="font-bold text-lg"># {selectedChannel?.name}</span>
+                  <span className="text-xs font-medium opacity-70">{selectedChannel?.description}</span>
                 </div>
 
                 {/* Messages Feed */}
-                <div className="flex-grow p-6 overflow-y-auto flex flex-col gap-4">
+                <div className="flex-grow p-6 overflow-y-auto flex flex-col gap-5 bg-[var(--paper)]">
                   {messages.map((msg) => (
-                    <div key={msg.id} className="flex flex-col items-start bg-black/20 p-3 rounded-xl border border-white/5 max-w-[80%]">
-                      <div className="flex justify-between items-center w-full text-[10px] font-mono text-white/40 mb-1">
-                        <span>Sender: User #{msg.sender_id}</span>
+                    <div key={msg.id} className="flex flex-col items-start bg-white p-4 border-2 border-black shadow-[3px_3px_0_rgba(0,0,0,0.1)] max-w-[85%]">
+                      <div className="flex justify-between items-center w-full text-[10px] font-bold uppercase tracking-wider mb-2 border-b-2 border-black/10 pb-1">
+                        <span>User #{msg.sender_id}</span>
                         <span>{new Date(msg.created_at).toLocaleTimeString()}</span>
                       </div>
-                      <p className="text-xs leading-relaxed">{msg.content}</p>
+                      <p className="text-sm font-medium leading-relaxed">{msg.content}</p>
                       
                       {/* Thread trigger */}
                       <button
                         onClick={() => openThread(msg)}
-                        className="text-[9px] font-bold text-[#EF8E01] uppercase tracking-wider mt-2 hover:underline"
+                        className="text-[10px] font-bold text-black border-2 border-black bg-[var(--gold)] px-2 py-1 uppercase tracking-wider mt-3 hover:-translate-y-0.5 hover:shadow-[2px_2px_0_#1a1a1a] transition-transform"
                       >
                         Reply in thread &rarr;
                       </button>
@@ -716,18 +695,18 @@ export default function WorkspaceHubPage() {
                 </div>
 
                 {/* Chat Input */}
-                <div className="h-16 border-t border-white/5 px-6 flex items-center gap-3">
+                <div className="h-20 border-t-2 border-black px-6 flex items-center gap-4 bg-[var(--paper-lift)]">
                   <input
                     type="text"
-                    placeholder={`Message #${selectedChannel?.name || ''}... (Tip: tag members like @username)`}
+                    placeholder={`Message #${selectedChannel?.name || ''}...`}
                     value={chatInput}
                     onChange={(e) => setChatInput(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && handleSendChat()}
-                    className="flex-grow px-4 py-2 bg-black/40 border border-white/10 rounded-xl text-xs text-white focus:outline-none"
+                    className="flex-grow px-4 py-3 bg-white border-2 border-black text-sm focus:outline-none"
                   />
                   <button
                     onClick={handleSendChat}
-                    className="px-4 py-2 bg-[#0038BD] text-white rounded-xl text-xs font-bold hover:opacity-90"
+                    className="px-6 py-3 bg-black text-white border-2 border-black text-sm font-bold uppercase tracking-wider hover:-translate-y-0.5 hover:shadow-[4px_4px_0_var(--gold)] transition-all"
                   >
                     Send
                   </button>
@@ -736,24 +715,24 @@ export default function WorkspaceHubPage() {
 
               {/* Right Panel: Chat Thread Drawer */}
               {threadParent && (
-                <div className="w-1/3 bg-[#10121D] rounded-2xl border border-white/5 p-4 flex flex-col justify-between overflow-hidden">
+                <div className="w-1/3 bg-white border-2 border-black shadow-[6px_6px_0_#1a1a1a] p-5 flex flex-col justify-between overflow-hidden">
                   <div>
-                    <div className="flex justify-between items-center border-b border-white/5 pb-2 mb-4">
-                      <h4 className="font-bold text-xs">Thread Replies</h4>
-                      <button onClick={() => setThreadParent(null)} className="text-white/40 text-xs hover:text-white">&times; Close</button>
+                    <div className="flex justify-between items-center border-b-2 border-black pb-3 mb-5">
+                      <h4 className="font-bold text-sm uppercase tracking-wider">Thread Replies</h4>
+                      <button onClick={() => setThreadParent(null)} className="text-black font-bold text-lg hover:text-[var(--danger)]">&times;</button>
                     </div>
 
                     {/* Parent Message details */}
-                    <div className="p-3 bg-black/40 rounded-xl border border-white/5 mb-4 text-xs">
-                      <div className="text-[9px] font-mono text-white/30 mb-1">PARENT MESSAGE:</div>
-                      <p>{threadParent.content}</p>
+                    <div className="p-4 bg-[var(--paper)] border-2 border-black mb-5 text-sm">
+                      <div className="text-[10px] font-bold uppercase tracking-wider mb-2 border-b-2 border-black/10 pb-1">PARENT MESSAGE:</div>
+                      <p className="font-medium">{threadParent.content}</p>
                     </div>
 
                     {/* Replies list */}
-                    <div className="flex flex-col gap-3 overflow-y-auto max-h-[300px]">
+                    <div className="flex flex-col gap-4 overflow-y-auto max-h-[350px] pr-2">
                       {threadReplies.map((rep) => (
-                        <div key={rep.id} className="p-2.5 bg-white/5 rounded-xl text-[11px] leading-relaxed">
-                          <div className="flex justify-between text-[9px] text-white/30 font-mono mb-1">
+                        <div key={rep.id} className="p-3 bg-white border-2 border-black text-sm font-medium leading-relaxed">
+                          <div className="flex justify-between text-[9px] font-bold uppercase tracking-wider mb-2 border-b-2 border-black/10 pb-1">
                             <span>User #{rep.sender_id}</span>
                             <span>{new Date(rep.created_at).toLocaleTimeString()}</span>
                           </div>
@@ -764,18 +743,18 @@ export default function WorkspaceHubPage() {
                   </div>
 
                   {/* Thread reply input */}
-                  <div className="border-t border-white/5 pt-3 mt-3 flex items-center gap-2">
+                  <div className="border-t-2 border-black pt-4 mt-4 flex flex-col gap-3">
                     <input
                       type="text"
                       placeholder="Reply to thread..."
                       value={threadInput}
                       onChange={(e) => setThreadInput(e.target.value)}
                       onKeyDown={(e) => e.key === 'Enter' && handleSendReply()}
-                      className="flex-grow px-3 py-2 bg-black/40 border border-white/10 rounded-xl text-xs text-white focus:outline-none"
+                      className="w-full px-4 py-3 bg-[var(--paper)] border-2 border-black text-sm focus:outline-none focus:bg-white"
                     />
                     <button
                       onClick={handleSendReply}
-                      className="px-3 py-2 bg-[#EF8E01] text-black rounded-xl text-xs font-bold hover:opacity-90"
+                      className="w-full py-3 bg-[var(--gold)] text-black border-2 border-black text-xs font-bold uppercase tracking-wider hover:-translate-y-0.5 hover:shadow-[4px_4px_0_#1a1a1a] transition-all"
                     >
                       Reply
                     </button>
@@ -787,35 +766,35 @@ export default function WorkspaceHubPage() {
 
           {/* --- TAB C: PROJECTS & KANBAN --- */}
           {activeTab === 'projects' && (
-            <div className="flex flex-col gap-8 h-full">
-              <div className="flex justify-between items-center">
+            <div className="flex flex-col gap-10 h-full max-w-[1600px]">
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
                 <div>
-                  <h2 className="text-2xl font-bold">Sprint Manager</h2>
+                  <h2 className="text-4xl font-space font-bold border-b-4 border-black pb-4">Sprint Manager</h2>
                   {selectedProject && (
-                    <span className="text-xs text-white/40">Active Project: {selectedProject.name}</span>
+                    <span className="text-sm font-bold uppercase tracking-wider mt-4 inline-block bg-[var(--gold)] border-2 border-black px-3 py-1 shadow-[2px_2px_0_#1a1a1a]">Active Project: {selectedProject.name}</span>
                   )}
                 </div>
 
                 {/* Project Creator Form */}
-                <form onSubmit={handleCreateProject} className="flex gap-2">
+                <form onSubmit={handleCreateProject} className="flex flex-wrap gap-4">
                   <input
                     type="text"
                     required
                     placeholder="Project name..."
                     value={newProjName}
                     onChange={(e) => setNewProjName(e.target.value)}
-                    className="px-3 py-2 bg-[#10121D] border border-white/10 rounded-xl text-xs text-white focus:outline-none"
+                    className="px-4 py-3 bg-[var(--paper)] border-2 border-black text-sm font-bold focus:outline-none focus:bg-white"
                   />
                   <input
                     type="text"
                     placeholder="Description..."
                     value={newProjDesc}
                     onChange={(e) => setNewProjDesc(e.target.value)}
-                    className="px-3 py-2 bg-[#10121D] border border-white/10 rounded-xl text-xs text-white focus:outline-none"
+                    className="px-4 py-3 bg-[var(--paper)] border-2 border-black text-sm font-bold focus:outline-none focus:bg-white"
                   />
                   <button
                     type="submit"
-                    className="px-4 py-2 bg-[#0038BD] text-white rounded-xl text-xs font-bold hover:opacity-90"
+                    className="px-6 py-3 bg-black text-white border-2 border-black text-sm font-bold uppercase tracking-wider hover:-translate-y-0.5 hover:shadow-[4px_4px_0_var(--gold)] transition-all whitespace-nowrap"
                   >
                     + Project
                   </button>
@@ -823,12 +802,12 @@ export default function WorkspaceHubPage() {
               </div>
 
               {/* Selector */}
-              <div className="flex gap-2 border-b border-white/5 pb-4">
+              <div className="flex flex-wrap gap-4 border-b-2 border-black pb-6">
                 {projects.map((proj) => (
                   <button
                     key={proj.id}
                     onClick={() => handleSelectProject(proj)}
-                    className={`px-4 py-2 rounded-full text-xs font-semibold ${selectedProject?.id === proj.id ? 'bg-[#EF8E01] text-black' : 'bg-[#10121D] text-white/50 hover:text-white'}`}
+                    className={`px-6 py-3 border-2 border-black text-sm font-bold uppercase tracking-wider transition-all ${selectedProject?.id === proj.id ? 'bg-[var(--gold)] text-black shadow-[4px_4px_0_#1a1a1a] translate-x-1' : 'bg-white text-black hover:-translate-y-0.5 hover:shadow-[4px_4px_0_#1a1a1a]'}`}
                   >
                     {proj.name}
                   </button>
@@ -836,33 +815,35 @@ export default function WorkspaceHubPage() {
               </div>
 
               {/* Kanban board layout */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 flex-grow overflow-hidden">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 flex-grow overflow-hidden">
                 {['To Do', 'In Progress', 'Done'].map((col) => {
                   const columnTasks = tasks.filter(t => t.status === col)
+                  const colBg = col === 'To Do' ? 'bg-[var(--paper-lift)]' : col === 'In Progress' ? 'bg-[#b7a36a]/20' : 'bg-[#3f6f55]/20';
+                  
                   return (
-                    <div key={col} className="bg-[#10121D] rounded-2xl border border-white/5 p-4 flex flex-col h-full min-h-[300px]">
-                      <div className="flex justify-between items-center border-b border-white/5 pb-2 mb-4">
-                        <span className="font-bold text-xs uppercase tracking-widest">{col}</span>
-                        <span className="px-2 py-0.5 bg-white/5 rounded-full text-[9px] font-bold">{columnTasks.length}</span>
+                    <div key={col} className={`${colBg} border-2 border-black shadow-[6px_6px_0_#1a1a1a] p-5 flex flex-col h-full min-h-[400px]`}>
+                      <div className="flex justify-between items-center border-b-2 border-black pb-3 mb-5">
+                        <span className="font-space text-lg font-bold uppercase tracking-widest">{col}</span>
+                        <span className="px-3 py-1 bg-black text-white text-xs font-bold border-2 border-black shadow-[2px_2px_0_var(--gold)]">{columnTasks.length}</span>
                       </div>
 
-                      <div className="flex flex-col gap-3 flex-grow overflow-y-auto">
+                      <div className="flex flex-col gap-4 flex-grow overflow-y-auto pr-2">
                         {columnTasks.map((t) => (
-                          <div key={t.id} className="p-4 bg-black/40 rounded-xl border border-white/5 flex flex-col gap-2">
-                            <h4 className="font-bold text-xs">{t.title}</h4>
-                            <p className="text-[10px] text-white/40 leading-relaxed">{t.description}</p>
-                            <div className="text-[8px] font-mono text-white/30 uppercase mt-1">Assignee ID: {t.assignee_id || 'Unassigned'}</div>
+                          <div key={t.id} className="p-4 bg-white border-2 border-black shadow-[4px_4px_0_rgba(0,0,0,1)] hover:-translate-y-1 hover:shadow-[6px_6px_0_rgba(0,0,0,1)] transition-transform flex flex-col gap-3">
+                            <h4 className="font-bold text-sm">{t.title}</h4>
+                            <p className="text-xs font-medium leading-relaxed opacity-80">{t.description}</p>
+                            <div className="text-[10px] font-bold tracking-wider uppercase mt-1 bg-[var(--paper)] p-2 border-2 border-black self-start">Assignee: {t.assignee_id || 'Unassigned'}</div>
                             
-                            {/* Simple Status Toggler buttons for testing */}
-                            <div className="flex gap-1.5 mt-2 pt-2 border-t border-white/5">
+                            {/* Simple Status Toggler buttons */}
+                            <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t-2 border-black/10">
                               {col !== 'To Do' && (
-                                <button onClick={() => handleTaskStatusChange(t.id, 'To Do')} className="px-2 py-1 bg-white/5 hover:bg-white/10 text-[8px] rounded uppercase font-bold">To Do</button>
+                                <button onClick={() => handleTaskStatusChange(t.id, 'To Do')} className="px-3 py-1.5 bg-white border-2 border-black text-[10px] font-bold uppercase tracking-wider hover:bg-black hover:text-white transition-colors">To Do</button>
                               )}
                               {col !== 'In Progress' && (
-                                <button onClick={() => handleTaskStatusChange(t.id, 'In Progress')} className="px-2 py-1 bg-white/5 hover:bg-white/10 text-[8px] rounded uppercase font-bold">In Dev</button>
+                                <button onClick={() => handleTaskStatusChange(t.id, 'In Progress')} className="px-3 py-1.5 bg-white border-2 border-black text-[10px] font-bold uppercase tracking-wider hover:bg-[var(--gold)] transition-colors">In Dev</button>
                               )}
                               {col !== 'Done' && (
-                                <button onClick={() => handleTaskStatusChange(t.id, 'Done')} className="px-2 py-1 bg-white/5 hover:bg-white/10 text-[8px] rounded uppercase font-bold">Done</button>
+                                <button onClick={() => handleTaskStatusChange(t.id, 'Done')} className="px-3 py-1.5 bg-white border-2 border-black text-[10px] font-bold uppercase tracking-wider hover:bg-[var(--green)] hover:text-white transition-colors">Done</button>
                               )}
                             </div>
                           </div>
@@ -875,34 +856,34 @@ export default function WorkspaceHubPage() {
 
               {/* Task Add Form */}
               {selectedProject && (
-                <form onSubmit={handleCreateTask} className="p-6 rounded-2xl bg-[#10121D] border border-white/5 flex flex-col md:flex-row gap-4 items-end">
-                  <div className="flex-grow flex flex-col gap-2">
-                    <span className="text-[10px] font-mono uppercase text-white/40">Add Task to {selectedProject.name}</span>
+                <form onSubmit={handleCreateTask} className="p-8 bg-[var(--paper-lift)] border-2 border-black shadow-[8px_8px_0_#1a1a1a] flex flex-col lg:flex-row gap-6 items-end mt-4">
+                  <div className="flex-grow flex flex-col gap-2 w-full">
+                    <span className="text-[10px] font-bold uppercase tracking-widest">Add Task to {selectedProject.name}</span>
                     <input
                       type="text"
                       required
                       placeholder="Task title..."
                       value={newTaskTitle}
                       onChange={(e) => setNewTaskTitle(e.target.value)}
-                      className="w-full px-3 py-2 bg-black/40 border border-white/10 rounded-xl text-xs text-white focus:outline-none"
+                      className="w-full px-4 py-3 bg-white border-2 border-black text-sm font-bold focus:outline-none"
                     />
                   </div>
-                  <div className="flex-grow flex flex-col gap-2">
-                    <span className="text-[10px] font-mono uppercase text-white/40">Task description</span>
+                  <div className="flex-grow flex flex-col gap-2 w-full">
+                    <span className="text-[10px] font-bold uppercase tracking-widest">Task description</span>
                     <input
                       type="text"
                       placeholder="Write brief description..."
                       value={newTaskDesc}
                       onChange={(e) => setNewTaskDesc(e.target.value)}
-                      className="w-full px-3 py-2 bg-black/40 border border-white/10 rounded-xl text-xs text-white focus:outline-none"
+                      className="w-full px-4 py-3 bg-white border-2 border-black text-sm font-bold focus:outline-none"
                     />
                   </div>
-                  <div className="flex flex-col gap-2">
-                    <span className="text-[10px] font-mono uppercase text-white/40">Assignee</span>
+                  <div className="flex flex-col gap-2 w-full lg:w-auto">
+                    <span className="text-[10px] font-bold uppercase tracking-widest">Assignee</span>
                     <select
                       value={newTaskAssignee}
                       onChange={(e) => setNewTaskAssignee(e.target.value)}
-                      className="px-3 py-2 bg-black/40 border border-white/10 rounded-xl text-xs text-white focus:outline-none min-w-[150px]"
+                      className="w-full lg:w-48 px-4 py-3 bg-white border-2 border-black text-sm font-bold focus:outline-none cursor-pointer"
                     >
                       <option value="">Unassigned</option>
                       {workspaceMembers.map(m => (
@@ -912,7 +893,7 @@ export default function WorkspaceHubPage() {
                   </div>
                   <button
                     type="submit"
-                    className="px-6 py-2 bg-[#EF8E01] text-black font-bold rounded-xl text-xs hover:opacity-90"
+                    className="w-full lg:w-auto px-8 py-3 bg-black text-white border-2 border-black font-bold uppercase tracking-wider text-sm hover:-translate-y-0.5 hover:shadow-[4px_4px_0_var(--gold)] transition-all whitespace-nowrap"
                   >
                     + Add Task
                   </button>
@@ -923,36 +904,36 @@ export default function WorkspaceHubPage() {
 
           {/* --- TAB D: DOCUMENT STORAGE --- */}
           {activeTab === 'documents' && (
-            <div className="flex flex-col gap-8">
-              <div className="flex justify-between items-center border-b border-white/5 pb-4">
-                <h2 className="text-2xl font-bold">Document Library</h2>
+            <div className="flex flex-col gap-10 max-w-[1400px]">
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 border-b-4 border-black pb-4">
+                <h2 className="text-4xl font-space font-bold">Document Library</h2>
                 
                 {/* Upload Form */}
-                <form onSubmit={handleDocUpload} className="flex gap-3 items-center">
+                <form onSubmit={handleDocUpload} className="flex flex-wrap gap-4 items-center bg-white border-2 border-black p-4 shadow-[6px_6px_0_#1a1a1a]">
                   <input
                     type="text"
                     required
                     placeholder="Document title..."
                     value={docTitle}
                     onChange={(e) => setDocTitle(e.target.value)}
-                    className="px-3 py-2 bg-[#10121D] border border-white/10 rounded-xl text-xs text-white focus:outline-none"
+                    className="px-4 py-2 bg-[var(--paper)] border-2 border-black text-sm font-bold focus:outline-none focus:bg-white"
                   />
                   <input
                     type="text"
                     placeholder="Category (default: General)"
                     value={docCategory}
                     onChange={(e) => setDocCategory(e.target.value)}
-                    className="px-3 py-2 bg-[#10121D] border border-white/10 rounded-xl text-xs text-white focus:outline-none"
+                    className="px-4 py-2 bg-[var(--paper)] border-2 border-black text-sm font-bold focus:outline-none focus:bg-white"
                   />
                   <input
                     type="file"
                     required
                     onChange={(e) => setDocFile(e.target.files[0])}
-                    className="text-xs text-white/50 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-white/10 file:text-white file:cursor-pointer"
+                    className="text-xs font-bold file:mr-4 file:py-2 file:px-4 file:border-2 file:border-black file:text-xs file:font-bold file:bg-[var(--gold)] file:text-black file:cursor-pointer file:shadow-[2px_2px_0_#1a1a1a] file:hover:translate-y-px file:hover:shadow-[1px_1px_0_#1a1a1a] file:transition-all"
                   />
                   <button
                     type="submit"
-                    className="px-5 py-2 bg-[#0038BD] text-white rounded-xl text-xs font-bold hover:opacity-90"
+                    className="px-6 py-2 bg-black text-white border-2 border-black text-xs font-bold uppercase tracking-wider hover:-translate-y-0.5 hover:shadow-[4px_4px_0_var(--gold)] transition-all whitespace-nowrap"
                   >
                     Upload File
                   </button>
@@ -960,48 +941,48 @@ export default function WorkspaceHubPage() {
               </div>
 
               {/* Grid document layout */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
                 {/* Documents list */}
-                <div className="flex flex-col gap-4">
-                  <h3 className="font-bold text-sm">Stored Documents</h3>
-                  <div className="flex flex-col gap-3">
+                <div className="flex flex-col gap-5">
+                  <h3 className="font-bold text-lg font-space uppercase tracking-widest border-b-2 border-black pb-2">Stored Documents</h3>
+                  <div className="flex flex-col gap-4">
                     {documents.map((doc) => (
                       <div
                         key={doc.id}
                         onClick={() => viewDocVersions(doc)}
-                        className="p-4 bg-[#10121D] border border-white/5 rounded-2xl flex justify-between items-center cursor-pointer hover:border-[#0038BD]"
+                        className="p-5 bg-white border-2 border-black shadow-[4px_4px_0_rgba(0,0,0,1)] flex justify-between items-center cursor-pointer hover:-translate-y-1 hover:shadow-[6px_6px_0_rgba(0,0,0,1)] transition-transform"
                       >
                         <div>
-                          <h4 className="font-bold text-xs">{doc.title}</h4>
-                          <span className="text-[9px] font-mono text-white/30 uppercase mt-1 block">Category: {doc.category}</span>
+                          <h4 className="font-bold text-sm uppercase tracking-wider">{doc.title}</h4>
+                          <span className="text-[10px] font-bold tracking-widest border-2 border-black bg-[var(--paper)] px-2 py-0.5 uppercase mt-2 inline-block">Category: {doc.category}</span>
                         </div>
-                        <span className="text-[10px] text-[#EF8E01] font-bold">Ver. {doc.current_version} &rarr;</span>
+                        <span className="text-xs text-black font-black bg-[var(--gold)] border-2 border-black px-3 py-1 shadow-[2px_2px_0_#1a1a1a]">Ver. {doc.current_version} &rarr;</span>
                       </div>
                     ))}
                   </div>
                 </div>
 
                 {/* Selected document versions */}
-                <div className="p-6 rounded-2xl bg-[#10121D] border border-white/5">
-                  <h3 className="font-bold text-sm border-b border-white/5 pb-2 mb-4">
+                <div className="p-8 bg-[var(--paper-lift)] border-2 border-black shadow-[8px_8px_0_#1a1a1a]">
+                  <h3 className="font-bold text-lg font-space uppercase tracking-widest border-b-2 border-black pb-3 mb-5">
                     {selectedDocTitle ? `${selectedDocTitle} - Version Log` : 'Select a document to view history'}
                   </h3>
                   {selectedDocVersions.length === 0 ? (
-                    <p className="text-xs text-white/30">Click a document from the list to show all version downloads.</p>
+                    <p className="text-sm font-medium">Click a document from the list to show all version downloads.</p>
                   ) : (
-                    <div className="flex flex-col gap-3">
+                    <div className="flex flex-col gap-4">
                       {selectedDocVersions.map((ver) => (
-                        <div key={ver.id} className="p-3 bg-black/40 rounded-xl border border-white/5 flex justify-between items-center">
+                        <div key={ver.id} className="p-4 bg-white border-2 border-black shadow-[4px_4px_0_#1a1a1a] flex justify-between items-center">
                           <div>
-                            <div className="font-bold text-[11px] text-white/80">Version #{ver.version_number}</div>
-                            <div className="text-[9px] text-white/30 mt-0.5 font-mono">{ver.file_type} | {(ver.file_size / 1024).toFixed(1)} KB</div>
-                            {ver.changelog && <div className="text-[9px] text-white/50 mt-1 italic">Changelog: {ver.changelog}</div>}
+                            <div className="font-bold text-sm uppercase tracking-wider mb-1">Version #{ver.version_number}</div>
+                            <div className="text-[10px] font-bold tracking-widest uppercase border-2 border-black bg-[var(--paper)] px-2 py-0.5 inline-block">{ver.file_type} | {(ver.file_size / 1024).toFixed(1)} KB</div>
+                            {ver.changelog && <div className="text-xs font-medium mt-2 bg-[var(--paper-lift)] border-l-4 border-black pl-2 py-1">Changelog: {ver.changelog}</div>}
                           </div>
                           
                           {/* Direct download */}
                           <a
                             href={api.documents.getDownloadUrl(workspace_id, ver.document_id, ver.version_number)}
-                            className="px-3 py-1 bg-white/10 hover:bg-[#0038BD] text-[9px] font-bold uppercase rounded-xl transition-all"
+                            className="px-4 py-2 bg-black text-white border-2 border-black text-[10px] font-bold uppercase tracking-wider hover:-translate-y-0.5 hover:shadow-[4px_4px_0_var(--gold)] transition-all whitespace-nowrap"
                             download
                           >
                             Download
@@ -1017,57 +998,57 @@ export default function WorkspaceHubPage() {
 
           {/* --- TAB E: MEETINGS INTELLIGENCE --- */}
           {activeTab === 'meetings' && (
-            <div className="flex flex-col gap-8">
-              <div className="flex justify-between items-center border-b border-white/5 pb-4">
-                <h2 className="text-2xl font-bold">Meeting Intelligence</h2>
+            <div className="flex flex-col gap-10 max-w-[1600px]">
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 border-b-4 border-black pb-4">
+                <h2 className="text-4xl font-space font-bold">Meeting Intelligence</h2>
                 
                 {/* Meeting Creator */}
-                <form onSubmit={handleCreateMeeting} className="flex flex-wrap gap-2 items-end">
+                <form onSubmit={handleCreateMeeting} className="flex flex-wrap gap-4 items-center bg-white border-2 border-black p-4 shadow-[6px_6px_0_#1a1a1a]">
                   <input
                     type="text"
                     required
                     placeholder="Meeting title..."
                     value={newMeetTitle}
                     onChange={(e) => setNewMeetTitle(e.target.value)}
-                    className="px-3 py-2 bg-[#10121D] border border-white/10 rounded-xl text-xs text-white focus:outline-none"
+                    className="px-4 py-2 bg-[var(--paper)] border-2 border-black text-sm font-bold focus:outline-none focus:bg-white"
                   />
                   <input
                     type="datetime-local"
                     required
                     value={newMeetDate}
                     onChange={(e) => setNewMeetDate(e.target.value)}
-                    className="px-3 py-2 bg-[#10121D] border border-white/10 rounded-xl text-xs text-white focus:outline-none"
+                    className="px-4 py-2 bg-[var(--paper)] border-2 border-black text-sm font-bold focus:outline-none focus:bg-white"
                   />
                   <button
                     type="submit"
-                    className="px-4 py-2 bg-[#0038BD] text-white rounded-xl text-xs font-bold hover:opacity-90"
+                    className="px-6 py-2 bg-black text-white border-2 border-black text-xs font-bold uppercase tracking-wider hover:-translate-y-0.5 hover:shadow-[4px_4px_0_var(--gold)] transition-all whitespace-nowrap"
                   >
                     + Schedule
                   </button>
                 </form>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
                 {/* Meetings List */}
-                <div className="flex flex-col gap-3">
-                  <h3 className="font-bold text-sm mb-2">Meetings Feed</h3>
+                <div className="flex flex-col gap-4">
+                  <h3 className="font-bold text-lg font-space uppercase tracking-widest border-b-2 border-black pb-2 mb-2">Meetings Feed</h3>
                   {meetings.map((meet) => (
-                    <div key={meet.id} className="p-4 bg-[#10121D] border border-white/5 rounded-2xl flex justify-between items-start">
+                    <div key={meet.id} className="p-5 bg-white border-2 border-black shadow-[4px_4px_0_rgba(0,0,0,1)] flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                       <div>
-                        <h4 className="font-bold text-xs">{meet.title}</h4>
-                        <p className="text-[10px] text-white/40 mt-1">{new Date(meet.scheduled_at).toLocaleString()}</p>
+                        <h4 className="font-bold text-sm uppercase tracking-wider">{meet.title}</h4>
+                        <p className="text-[10px] font-bold tracking-widest border-2 border-black bg-[var(--paper)] px-2 py-0.5 uppercase mt-2 inline-block">{new Date(meet.scheduled_at).toLocaleString()}</p>
                       </div>
 
-                      <div className="flex gap-2">
+                      <div className="flex gap-3">
                         <button
                           onClick={() => setSelectedMeeting(meet)}
-                          className="px-3 py-1.5 bg-white/5 hover:bg-white/10 text-[9px] font-bold rounded-lg uppercase"
+                          className="px-4 py-2 bg-[var(--paper)] border-2 border-black hover:-translate-y-0.5 hover:shadow-[4px_4px_0_#1a1a1a] text-[10px] font-bold uppercase tracking-wider transition-all"
                         >
                           Transcript
                         </button>
                         <button
                           onClick={() => handleTriggerSummary(meet)}
-                          className="px-3 py-1.5 bg-[#EF8E01] text-black text-[9px] font-bold rounded-lg uppercase"
+                          className="px-4 py-2 bg-[var(--gold)] text-black border-2 border-black hover:-translate-y-0.5 hover:shadow-[4px_4px_0_#1a1a1a] text-[10px] font-bold uppercase tracking-wider transition-all"
                         >
                           AI Summary
                         </button>
@@ -1077,23 +1058,23 @@ export default function WorkspaceHubPage() {
                 </div>
 
                 {/* Right Area: Transcripts & AI Summaries */}
-                <div className="flex flex-col gap-6">
+                <div className="flex flex-col gap-8">
                   {/* Selected Meeting Transcript Upload */}
                   {selectedMeeting && (
-                    <div className="p-6 rounded-2xl bg-[#10121D] border border-white/5">
-                      <h4 className="font-bold text-xs mb-3">Upload Transcript for: {selectedMeeting.title}</h4>
-                      <form onSubmit={handleUploadTranscript} className="flex flex-col gap-3">
+                    <div className="p-8 bg-[var(--paper-lift)] border-2 border-black shadow-[8px_8px_0_#1a1a1a]">
+                      <h4 className="font-bold text-lg font-space uppercase tracking-widest mb-4 border-b-2 border-black pb-2">Upload Transcript for: {selectedMeeting.title}</h4>
+                      <form onSubmit={handleUploadTranscript} className="flex flex-col gap-4">
                         <textarea
-                          rows="4"
+                          rows="5"
                           required
                           placeholder="Type or paste transcription text..."
                           value={transcriptText}
                           onChange={(e) => setTranscriptText(e.target.value)}
-                          className="w-full p-3 bg-black/40 border border-white/10 rounded-xl text-xs text-white focus:outline-none font-mono"
+                          className="w-full p-4 bg-white border-2 border-black text-sm font-medium focus:outline-none"
                         />
                         <button
                           type="submit"
-                          className="w-fit px-4 py-2 bg-[#0038BD] text-white rounded-xl text-xs font-bold hover:opacity-90"
+                          className="w-fit px-8 py-3 bg-black text-white border-2 border-black text-xs font-bold uppercase tracking-wider hover:-translate-y-0.5 hover:shadow-[4px_4px_0_var(--gold)] transition-all"
                         >
                           Save Transcript
                         </button>
@@ -1102,21 +1083,21 @@ export default function WorkspaceHubPage() {
                   )}
 
                   {/* AI Summarization result */}
-                  <div className="p-6 rounded-2xl bg-[#10121D] border border-white/5">
-                    <h3 className="font-bold text-sm border-b border-white/5 pb-2 mb-4">Llama 3 AI intelligence Report</h3>
+                  <div className="p-8 bg-[var(--paper-lift)] border-2 border-black shadow-[8px_8px_0_#1a1a1a]">
+                    <h3 className="font-bold text-lg font-space uppercase tracking-widest border-b-2 border-black pb-3 mb-5">Llama 3 AI intelligence Report</h3>
                     {summarizeLoading ? (
-                      <p className="text-xs text-white/40">Requesting AI summary from backend...</p>
+                      <p className="text-sm font-bold uppercase tracking-wider animate-pulse">Requesting AI summary from backend...</p>
                     ) : !meetSummary ? (
-                      <p className="text-xs text-white/30">Click &quot;AI Summary&quot; on any meeting to generate intelligence reports.</p>
+                      <p className="text-sm font-medium">Click &quot;AI Summary&quot; on any meeting to generate intelligence reports.</p>
                     ) : (
-                      <div className="flex flex-col gap-4 text-xs">
-                        <div>
-                          <div className="font-bold text-[#EF8E01] mb-1">SUMMARY:</div>
-                          <p className="leading-relaxed text-white/80">{meetSummary.summary}</p>
+                      <div className="flex flex-col gap-6 text-sm">
+                        <div className="bg-white border-2 border-black p-5 shadow-[4px_4px_0_#1a1a1a]">
+                          <div className="font-black text-lg uppercase tracking-wider border-b-2 border-black pb-2 mb-3 font-space bg-[var(--gold)] inline-block px-3 py-1">SUMMARY:</div>
+                          <p className="leading-relaxed font-medium">{meetSummary.summary}</p>
                         </div>
-                        <div>
-                          <div className="font-bold text-[#0038BD] mb-1">ACTION ITEMS:</div>
-                          <pre className="whitespace-pre-line leading-relaxed text-white/70 font-mono text-[10px]">{meetSummary.action_items}</pre>
+                        <div className="bg-white border-2 border-black p-5 shadow-[4px_4px_0_#1a1a1a]">
+                          <div className="font-black text-lg uppercase tracking-wider border-b-2 border-black pb-2 mb-3 font-space bg-black text-white inline-block px-3 py-1">ACTION ITEMS:</div>
+                          <pre className="whitespace-pre-line leading-relaxed font-medium text-xs border-l-4 border-black pl-3 ml-2">{meetSummary.action_items}</pre>
                         </div>
                       </div>
                     )}
@@ -1128,29 +1109,29 @@ export default function WorkspaceHubPage() {
 
           {/* --- TAB F: AI KNOWLEDGE BRAIN --- */}
           {activeTab === 'ai' && (
-            <div className="flex flex-col gap-8 max-w-3xl">
-              <div>
-                <h2 className="text-2xl font-bold">AI Knowledge Brain</h2>
-                <p className="text-xs text-white/40 mt-1">Queries pgvector documents storage and provides localized context summaries</p>
+            <div className="flex flex-col gap-10 max-w-4xl">
+              <div className="border-b-4 border-black pb-4">
+                <h2 className="text-4xl font-space font-bold">AI Knowledge Brain</h2>
+                <p className="text-sm font-medium mt-2">Queries pgvector documents storage and provides localized context summaries</p>
               </div>
 
               {/* RAG search form */}
-              <form onSubmit={handleAiQuery} className="p-6 rounded-2xl bg-[#10121D] border border-white/5 flex flex-col gap-4">
-                <div className="flex flex-col gap-2">
-                  <label className="text-[10px] font-mono uppercase text-white/40">Ask anything about the files in this workspace:</label>
+              <form onSubmit={handleAiQuery} className="p-8 bg-white border-2 border-black shadow-[8px_8px_0_#1a1a1a] flex flex-col gap-6">
+                <div className="flex flex-col gap-3">
+                  <label className="text-sm font-bold uppercase tracking-wider">Ask anything about the files in this workspace:</label>
                   <input
                     type="text"
                     required
                     placeholder="e.g. What are the OAuth credentials rules? or summarize the tech details"
                     value={aiQuestion}
                     onChange={(e) => setAiQuestion(e.target.value)}
-                    className="w-full px-4 py-3 bg-black/40 border border-white/10 rounded-xl text-xs text-white focus:outline-none"
+                    className="w-full px-5 py-4 bg-[var(--paper)] border-2 border-black text-sm font-medium focus:outline-none focus:bg-white"
                   />
                 </div>
                 <button
                   type="submit"
                   disabled={aiQueryLoading}
-                  className="px-6 py-2.5 bg-[#EF8E01] text-black font-bold rounded-xl text-xs uppercase tracking-wider hover:opacity-90 w-fit"
+                  className="px-8 py-4 bg-[var(--gold)] text-black border-2 border-black font-bold text-sm uppercase tracking-wider hover:-translate-y-0.5 hover:shadow-[4px_4px_0_#1a1a1a] transition-all w-fit disabled:opacity-50"
                 >
                   {aiQueryLoading ? 'Querying Brain...' : 'Query AI Brain'}
                 </button>
@@ -1158,9 +1139,9 @@ export default function WorkspaceHubPage() {
 
               {/* AI Answer display */}
               {aiAnswer && (
-                <div className="p-6 rounded-2xl bg-[#10121D] border border-white/5 flex flex-col gap-3">
-                  <div className="text-xs font-bold text-[#0038BD]">AI BRAIN RESPONSE:</div>
-                  <p className="text-xs leading-relaxed text-white/80 whitespace-pre-line font-mono bg-black/30 p-4 rounded-xl border border-white/5">
+                <div className="p-8 bg-[var(--paper-lift)] border-2 border-black shadow-[8px_8px_0_#1a1a1a] flex flex-col gap-5">
+                  <div className="text-lg font-black font-space uppercase tracking-widest border-b-2 border-black pb-2 bg-black text-white inline-block px-4 py-2 self-start">AI BRAIN RESPONSE:</div>
+                  <p className="text-sm leading-relaxed font-medium whitespace-pre-line bg-white p-6 border-2 border-black shadow-[inset_4px_4px_0_rgba(0,0,0,0.05)]">
                     {aiAnswer}
                   </p>
                 </div>
@@ -1170,39 +1151,41 @@ export default function WorkspaceHubPage() {
 
           {/* --- TAB G: NOTIFICATIONS FEED --- */}
           {activeTab === 'notifications' && (
-            <div className="flex flex-col gap-8 max-w-2xl">
-              <div className="flex justify-between items-center border-b border-white/5 pb-4">
+            <div className="flex flex-col gap-10 max-w-3xl">
+              <div className="flex justify-between items-end border-b-4 border-black pb-4">
                 <div>
-                  <h2 className="text-2xl font-bold">In-App Notifications</h2>
-                  <p className="text-xs text-white/40 mt-1">Recipients feed triggered by Chat @mentions</p>
+                  <h2 className="text-4xl font-space font-bold">In-App Notifications</h2>
+                  <p className="text-sm font-medium mt-2">Recipients feed triggered by Chat @mentions</p>
                 </div>
                 <button
                   onClick={markAllNotificationsRead}
-                  className="px-4 py-2 border border-white/10 hover:border-[#0038BD]/50 hover:bg-[#0038BD]/10 rounded-xl text-[10px] font-bold uppercase"
+                  className="px-6 py-3 bg-[var(--paper)] border-2 border-black hover:-translate-y-0.5 hover:shadow-[4px_4px_0_#1a1a1a] text-xs font-bold uppercase tracking-wider transition-all"
                 >
                   Mark All Read
                 </button>
               </div>
 
-              <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-5">
                 {notifications.length === 0 ? (
-                  <p className="text-sm text-white/30">Your inbox is completely clear!</p>
+                  <div className="p-8 bg-white border-2 border-black shadow-[4px_4px_0_#1a1a1a] text-center">
+                    <p className="text-lg font-bold font-space uppercase">Your inbox is completely clear!</p>
+                  </div>
                 ) : (
                   notifications.map((notif) => (
                     <div
                       key={notif.id}
-                      className={`p-4 rounded-2xl border flex justify-between items-center ${notif.is_read ? 'bg-[#10121D]/30 border-white/5 text-white/50' : 'bg-[#10121D] border-[#0038BD]/30 shadow-md'}`}
+                      className={`p-6 border-2 border-black flex justify-between items-center transition-transform hover:-translate-y-0.5 ${notif.is_read ? 'bg-[#e8e8e2] opacity-70 shadow-[2px_2px_0_#1a1a1a]' : 'bg-white shadow-[6px_6px_0_#1a1a1a]'}`}
                     >
                       <div>
-                        <div className="font-bold text-xs">{notif.title}</div>
-                        <p className="text-[10px] leading-relaxed mt-1">{notif.content}</p>
-                        <span className="text-[8px] font-mono text-white/30 uppercase mt-1 block">Type: {notif.notification_type}</span>
+                        <div className="font-bold text-lg mb-1">{notif.title}</div>
+                        <p className="text-sm font-medium leading-relaxed">{notif.content}</p>
+                        <span className="text-[10px] font-bold tracking-widest uppercase mt-3 inline-block bg-[var(--paper)] border-2 border-black px-2 py-0.5">Type: {notif.notification_type}</span>
                       </div>
                       
                       {!notif.is_read && (
                         <button
                           onClick={() => markSingleNotificationRead(notif.id)}
-                          className="px-3 py-1 bg-white/5 hover:bg-[#EF8E01] hover:text-black text-[9px] font-bold uppercase rounded-lg"
+                          className="px-5 py-2 bg-[var(--gold)] text-black border-2 border-black hover:-translate-y-0.5 hover:shadow-[4px_4px_0_#1a1a1a] text-[10px] font-bold uppercase tracking-wider transition-all"
                         >
                           Read
                         </button>

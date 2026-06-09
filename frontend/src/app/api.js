@@ -20,7 +20,13 @@ const handleResponse = async (res) => {
     let errorDetail = 'API Request failed'
     try {
       const data = await res.json()
-      errorDetail = data.detail || JSON.stringify(data)
+      if (typeof data.detail === 'string') {
+        errorDetail = data.detail
+      } else if (data.detail) {
+        errorDetail = JSON.stringify(data.detail)
+      } else {
+        errorDetail = JSON.stringify(data)
+      }
     } catch (e) {
       errorDetail = await res.text()
     }
@@ -46,14 +52,10 @@ export const api = {
       }).then(handleResponse),
       
     login: (username, password) => {
-      const formData = new URLSearchParams()
-      formData.append('username', username)
-      formData.append('password', password)
-      
       return fetch(`${BASE_URL}/auth/login`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: formData
+        headers: getHeaders(),
+        body: JSON.stringify({ email: username, password })
       }).then(handleResponse)
     },
     
@@ -229,7 +231,7 @@ export const api = {
 
   dashboard: {
     workload: (workspaceId) => 
-      fetch(`${BASE_URL}/workspaces/${workspaceId}/dashboard/workload`, {
+      fetch(`${BASE_URL}/workspaces/${workspaceId}/dashboard`, {
         method: 'GET',
         headers: getHeaders()
       }).then(handleResponse),

@@ -26,7 +26,7 @@ export const metadata = {
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en" className={`${inter.variable} ${syne.variable} ${spaceGrotesk.variable}`}>
+    <html lang="en" className={`${inter.variable} ${syne.variable} ${spaceGrotesk.variable}`} suppressHydrationWarning>
       <body className="antialiased">
         <SmoothScroll>
           {children}
