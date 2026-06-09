@@ -1,5 +1,7 @@
 import secrets
+import httpx
 from datetime import datetime, timedelta, timezone
+from app.core.config import settings
 from typing import List, Optional
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
@@ -53,6 +55,17 @@ def get_user_workspaces(db: Session, user_id: int) -> List[Workspace]:
     """
     return db.query(Workspace).join(WorkspaceMember).filter(WorkspaceMember.user_id == user_id).all()
 
+def delete_workspace(db: Session, workspace_id: str) -> bool:
+    """
+    Deletes a workspace and all its cascade-related data.
+    """
+    workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+    if not workspace:
+        return False
+    db.delete(workspace)
+    db.commit()
+    return True
+
 def get_workspace_members(db: Session, workspace_id: str):
     """
     Retrieve all members of a workspace along with their roles.
@@ -69,7 +82,8 @@ def get_workspace_members(db: Session, workspace_id: str):
 def create_workspace_invitation(
     db: Session, 
     workspace_id: str, 
-    invite_in: WorkspaceInvitationCreate
+    invite_in: WorkspaceInvitationCreate,
+    inviter: User = None
 ) -> WorkspaceInvitation:
     """
     Creates an invitation token and returns the details.
@@ -90,15 +104,6 @@ def create_workspace_invitation(
     db.add(db_invite)
     db.commit()
     db.refresh(db_invite)
-    
-    # Mock sending invitation email with instructions
-    print(f"\n--- [RESEND/BREVO EMAIL MOCK] ---")
-    print(f"To: {db_invite.email}")
-    print(f"Subject: You've been invited to join Workspace {workspace_id}!")
-    print(f"Body: Hello! You have been invited to join the '{workspace_id}' workspace as a {db_invite.role}.")
-    print(f"To accept, click the link below and set your password:")
-    print(f"Link: http://localhost:3000/invite?token={token}")
-    print(f"---------------------------------\n")
     
     return db_invite
 
@@ -156,7 +161,7 @@ def accept_workspace_invitation(db: Session, token: str, full_name: str, passwor
         db.commit()
         return existing_member
         
-    # 5. Join workspace member
+    # 5. Create Workspace Member
     member = WorkspaceMember(
         workspace_id=invite.workspace_id,
         user_id=user.id,
@@ -164,7 +169,93 @@ def accept_workspace_invitation(db: Session, token: str, full_name: str, passwor
     )
     db.add(member)
     
-    # Mark invitation accepted
+    # 6. Automatically create a DM channel between the Team Head and this member
+    workspace = db.query(Workspace).filter(Workspace.id == invite.workspace_id).first()
+    if workspace:
+        from app.modules.chat.models import Channel
+        dm_channel = Channel(
+            workspace_id=invite.workspace_id,
+            name=f"DM: {user.full_name}",
+            description=f"Direct message with {user.full_name}",
+            is_private=True,
+            is_dm=True,
+            dm_user_1_id=workspace.owner_id,
+            dm_user_2_id=user.id
+        )
+        db.add(dm_channel)
+
+    # Mark invitation as accepted
+    invite.is_accepted = True
+    db.commit()
+    db.refresh(member)
+    
+    return member
+
+def join_workspace(db: Session, workspace_id: str, email: str, full_name: str, password: str) -> WorkspaceMember:
+    """
+    Allows a user to join a workspace if their email was whitelisted in an invitation.
+    """
+    email_clean = email.lower().strip()
+    
+    # 1. Check if email is invited to this workspace
+    invite = db.query(WorkspaceInvitation).filter(
+        WorkspaceInvitation.workspace_id == workspace_id,
+        WorkspaceInvitation.email == email_clean,
+        WorkspaceInvitation.is_accepted == False
+    ).first()
+    
+    if not invite:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You have not been invited to this workspace or your email is incorrect."
+        )
+        
+    # 2. Check if user exists
+    user = get_user_by_email(db, email_clean)
+    if not user:
+        user_create = UserCreate(
+            email=email_clean,
+            full_name=full_name,
+            password=password
+        )
+        user = register_user(db, user_create)
+        user.is_verified = True
+        db.commit()
+        
+    # 3. Check if already a member
+    existing_member = db.query(WorkspaceMember).filter(
+        WorkspaceMember.workspace_id == workspace_id,
+        WorkspaceMember.user_id == user.id
+    ).first()
+    
+    if existing_member:
+        invite.is_accepted = True
+        db.commit()
+        return existing_member
+        
+    # 4. Join workspace
+    member = WorkspaceMember(
+        workspace_id=workspace_id,
+        user_id=user.id,
+        role=invite.role
+    )
+    db.add(member)
+    
+    # 5. Automatically create a DM channel between the Team Head and this member
+    workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+    if workspace:
+        from app.modules.chat.models import Channel
+        dm_channel = Channel(
+            workspace_id=workspace_id,
+            name=f"DM: {user.full_name}",
+            description=f"Direct message with {user.full_name}",
+            is_private=True,
+            is_dm=True,
+            dm_user_1_id=workspace.owner_id,
+            dm_user_2_id=user.id
+        )
+        db.add(dm_channel)
+    
     invite.is_accepted = True
     db.commit()
     db.refresh(member)
@@ -191,5 +282,30 @@ def remove_workspace_member(db: Session, workspace_id: str, user_id: int) -> boo
         )
         
     db.delete(membership)
+    db.commit()
+    return True
+
+def get_workspace_invitations(db: Session, workspace_id: str) -> List[WorkspaceInvitation]:
+    """
+    Returns all pending invitations for a workspace.
+    """
+    return db.query(WorkspaceInvitation).filter(
+        WorkspaceInvitation.workspace_id == workspace_id,
+        WorkspaceInvitation.is_accepted == False
+    ).all()
+
+def delete_workspace_invitation(db: Session, workspace_id: str, invitation_id: int) -> bool:
+    """
+    Deletes a specific invitation from a workspace.
+    """
+    invite = db.query(WorkspaceInvitation).filter(
+        WorkspaceInvitation.id == invitation_id,
+        WorkspaceInvitation.workspace_id == workspace_id
+    ).first()
+    
+    if not invite:
+        return False
+        
+    db.delete(invite)
     db.commit()
     return True

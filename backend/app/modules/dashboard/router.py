@@ -11,8 +11,8 @@ router = APIRouter(prefix="/workspaces/{workspace_id}/dashboard", tags=["Manager
 def get_dashboard_analytics(
     workspace_id: str,
     db: Session = Depends(get_db),
-    # Guard: Only Owners and Admins can access the manager intelligence dashboard
-    current_member: WorkspaceMember = Depends(RequireWorkspaceRole(["Owner", "Admin"]))
+    # Guard: All members can access the intelligence dashboard
+    current_member: WorkspaceMember = Depends(RequireWorkspaceRole(["Owner", "Admin", "Member"]))
 ):
     """
     Retrieves workspace manager dashboard analytics, including project sprint summaries and team workloads.
@@ -24,8 +24,8 @@ def get_dashboard_analytics(
 def get_weekly_ai_report(
     workspace_id: str,
     db: Session = Depends(get_db),
-    # Guard: Only Owners and Admins can trigger AI weekly reports
-    current_member: WorkspaceMember = Depends(RequireWorkspaceRole(["Owner", "Admin"]))
+    # Guard: All members can trigger AI weekly reports
+    current_member: WorkspaceMember = Depends(RequireWorkspaceRole(["Owner", "Admin", "Member"]))
 ):
     """
     Generates a weekly summary progress report for the manager.

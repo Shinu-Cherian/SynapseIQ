@@ -32,6 +32,39 @@ def get_my_workspaces(
     """
     return services.get_user_workspaces(db, user_id=current_user.id)
 
+@router.get("/{workspace_id}", response_model=schemas.WorkspaceResponse)
+def get_workspace(
+    workspace_id: str,
+    db: Session = Depends(get_db),
+    # Guard: Must be a member of the workspace
+    current_member: WorkspaceMember = Depends(RequireWorkspaceRole(["Owner", "Admin", "Member"]))
+):
+    """
+    Retrieves details of a specific workspace.
+    """
+    workspace = services.get_workspace_by_id(db, workspace_id=workspace_id)
+    if not workspace:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found")
+    return workspace
+
+@router.delete("/{workspace_id}")
+def delete_workspace(
+    workspace_id: str,
+    db: Session = Depends(get_db),
+    # Guard: Only Workspace Owners can delete a workspace
+    current_member: WorkspaceMember = Depends(RequireWorkspaceRole(["Owner"]))
+):
+    """
+    Deletes the entire workspace and all its data.
+    """
+    success = services.delete_workspace(db, workspace_id=workspace_id)
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workspace not found"
+        )
+    return {"message": "Workspace deleted successfully"}
+
 @router.post("/{workspace_id}/invite", response_model=schemas.WorkspaceInvitationResponse)
 def invite_user(
     workspace_id: str,
@@ -44,7 +77,8 @@ def invite_user(
     Generates a secure invitation token for an employee.
     Requires 'Owner' or 'Admin' role in the workspace.
     """
-    return services.create_workspace_invitation(db, workspace_id=workspace_id, invite_in=invite_in)
+    user = db.query(User).filter(User.id == current_member.user_id).first()
+    return services.create_workspace_invitation(db, workspace_id=workspace_id, invite_in=invite_in, inviter=user)
 
 @router.post("/join/{token}", status_code=status.HTTP_201_CREATED)
 def join_workspace(
@@ -59,6 +93,28 @@ def join_workspace(
         db, 
         token=token, 
         full_name=join_in.full_name, 
+        password=join_in.password
+    )
+    return {
+        "message": f"Successfully joined workspace '{member.workspace_id}' with role '{member.role}'",
+        "workspace_id": member.workspace_id,
+        "role": member.role
+    }
+
+@router.post("/{workspace_id}/join")
+def join_workspace_link(
+    workspace_id: str,
+    join_in: schemas.WorkspaceJoinEmail,
+    db: Session = Depends(get_db)
+):
+    """
+    Universal link join endpoint.
+    """
+    member = services.join_workspace(
+        db,
+        workspace_id=workspace_id,
+        email=join_in.email,
+        full_name=join_in.full_name,
         password=join_in.password
     )
     return {
@@ -119,3 +175,32 @@ def remove_member(
         )
         
     return {"message": "Member removed successfully"}
+
+@router.get("/{workspace_id}/invitations", response_model=List[schemas.WorkspaceInvitationResponse])
+def get_invitations(
+    workspace_id: str,
+    db: Session = Depends(get_db),
+    current_member: WorkspaceMember = Depends(RequireWorkspaceRole(["Owner", "Admin"]))
+):
+    """
+    Retrieves all pending invitations.
+    """
+    return services.get_workspace_invitations(db, workspace_id=workspace_id)
+
+@router.delete("/{workspace_id}/invitations/{invitation_id}")
+def remove_invitation(
+    workspace_id: str,
+    invitation_id: int,
+    db: Session = Depends(get_db),
+    current_member: WorkspaceMember = Depends(RequireWorkspaceRole(["Owner", "Admin"]))
+):
+    """
+    Deletes a pending invitation to revoke access.
+    """
+    success = services.delete_workspace_invitation(db, workspace_id=workspace_id, invitation_id=invitation_id)
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Invitation not found"
+        )
+    return {"message": "Invitation revoked successfully"}

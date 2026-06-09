@@ -80,6 +80,18 @@ export const api = {
         body: JSON.stringify({ id, name })
       }).then(handleResponse),
       
+    delete: (workspaceId) =>
+      fetch(`${BASE_URL}/workspaces/${workspaceId}`, {
+        method: 'DELETE',
+        headers: getHeaders()
+      }).then(handleResponse),
+      
+    get: (workspaceId) =>
+      fetch(`${BASE_URL}/workspaces/${workspaceId}`, {
+        method: 'GET',
+        headers: getHeaders()
+      }).then(handleResponse),
+      
     invite: (workspaceId, email, role = 'Member') => 
       fetch(`${BASE_URL}/workspaces/${workspaceId}/invite`, {
         method: 'POST',
@@ -87,9 +99,34 @@ export const api = {
         body: JSON.stringify({ email, role })
       }).then(handleResponse),
       
+    join: (workspaceId, email, fullName, password) =>
+      fetch(`${BASE_URL}/workspaces/${workspaceId}/join`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, full_name: fullName, password })
+      }).then(handleResponse),
+      
+    invitations: (workspaceId) => 
+      fetch(`${BASE_URL}/workspaces/${workspaceId}/invitations`, {
+        method: 'GET',
+        headers: getHeaders()
+      }).then(handleResponse),
+      
+    deleteInvitation: (workspaceId, invitationId) =>
+      fetch(`${BASE_URL}/workspaces/${workspaceId}/invitations/${invitationId}`, {
+        method: 'DELETE',
+        headers: getHeaders()
+      }).then(handleResponse),
+      
     members: (workspaceId) => 
       fetch(`${BASE_URL}/workspaces/${workspaceId}/members`, {
         method: 'GET',
+        headers: getHeaders()
+      }).then(handleResponse),
+      
+    removeMember: (workspaceId, userId) =>
+      fetch(`${BASE_URL}/workspaces/${workspaceId}/members/${userId}`, {
+        method: 'DELETE',
         headers: getHeaders()
       }).then(handleResponse)
   },

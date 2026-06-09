@@ -48,9 +48,9 @@ def get_channels(
     current_member: WorkspaceMember = Depends(RequireWorkspaceRole(["Owner", "Admin", "Member"]))
 ):
     """
-    Retrieves all public channels inside the workspace.
+    Retrieves all channels the user has access to.
     """
-    return services.get_workspace_channels(db, workspace_id=workspace_id)
+    return services.get_workspace_channels(db, workspace_id=workspace_id, current_user_id=current_member.user_id)
 
 @router.get("/{channel_id}/messages", response_model=List[schemas.MessageResponse])
 def get_messages(

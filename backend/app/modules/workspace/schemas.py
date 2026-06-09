@@ -49,3 +49,9 @@ class WorkspaceInvitationResponse(BaseModel):
 class WorkspaceJoin(BaseModel):
     full_name: str
     password: str
+
+# Schema to register & join a workspace via universal link
+class WorkspaceJoinEmail(BaseModel):
+    email: EmailStr
+    full_name: str
+    password: str

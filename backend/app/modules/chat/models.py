@@ -11,6 +11,9 @@ class Channel(Base):
     name = Column(String, nullable=False, index=True)
     description = Column(String, nullable=True)
     is_private = Column(Boolean, default=False, nullable=False)
+    is_dm = Column(Boolean, default=False, nullable=False)
+    dm_user_1_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
+    dm_user_2_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     # Relationships

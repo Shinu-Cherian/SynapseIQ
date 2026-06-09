@@ -23,6 +23,7 @@ class Settings(BaseSettings):
 
     # Notification Settings (Resend / Brevo)
     RESEND_API_KEY: str = Field(default="your_resend_api_key_here")
+    BREVO_API_KEY: str = Field(default="your_brevo_api_key_here")
     SENDER_EMAIL: str = "noreply@synapseiq.com"
 
     # Load variables from .env file

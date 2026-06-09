@@ -13,6 +13,8 @@ export default function WorkspaceHubPage() {
   // Tab states: 'dashboard', 'chat', 'projects', 'documents', 'meetings', 'ai', 'notifications'
   const [activeTab, setActiveTab] = useState('dashboard')
   const [currentUser, setCurrentUser] = useState(null)
+  const [currentUserRole, setCurrentUserRole] = useState(null)
+  const [workspace, setWorkspace] = useState(null)
   const [loading, setLoading] = useState(true)
   const [notifications, setNotifications] = useState([])
   const [bellCount, setBellCount] = useState(0)
@@ -45,10 +47,13 @@ export default function WorkspaceHubPage() {
   const [newTaskDesc, setNewTaskDesc] = useState('')
   const [newTaskAssignee, setNewTaskAssignee] = useState('')
   const [workspaceMembers, setWorkspaceMembers] = useState([])
-  const [inviteEmail, setInviteEmail] = useState('')
-  const [inviteRole, setInviteRole] = useState('Member')
+  const [invites, setInvites] = useState([{ email: '', role: 'Member' }])
   const [inviteLoading, setInviteLoading] = useState(false)
   const [inviteMessage, setInviteMessage] = useState('')
+  const [inviteLink, setInviteLink] = useState('')
+  const [showInviteLink, setShowInviteLink] = useState(false)
+  const [pendingInvitations, setPendingInvitations] = useState([])
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 
   // 4. Documents State
   const [documents, setDocuments] = useState([])
@@ -86,12 +91,24 @@ export default function WorkspaceHubPage() {
       const user = await api.auth.me()
       setCurrentUser(user)
       
-      // 2. Fetch notifications count
+      // 2. Fetch workspace details
+      const wsDetails = await api.workspaces.get(workspace_id)
+      setWorkspace(wsDetails)
+      
+      // 3. Fetch notifications count
       fetchNotifications()
       
-      // 3. Fetch workspace members for assignees lists
+      // 4. Fetch workspace members for assignees lists
       const members = await api.workspaces.members(workspace_id)
       setWorkspaceMembers(members)
+      setCurrentUserRole(members.find(m => m.user_id === user.id)?.role)
+      
+      try {
+        const invs = await api.workspaces.invitations(workspace_id)
+        setPendingInvitations(invs)
+        const joinCode = btoa(workspace_id).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+        setInviteLink(`${window.location.origin}/join/${joinCode}`)
+      } catch (e) {}
       
       // Load initial tab data
       loadDashboardTab()
@@ -166,13 +183,23 @@ export default function WorkspaceHubPage() {
     }
   }
 
+  const executeDeleteWorkspace = async () => {
+    try {
+      await api.workspaces.delete(workspace_id)
+      router.push('/workspaces')
+    } catch (err) {
+      alert("Failed to delete workspace: " + err.message)
+    }
+  }
+
   // 2. Chat Loading & WebSocket
   const loadChatTab = async () => {
     try {
-      const chanList = await api.chat.channels(workspace_id)
-      setChannels(chanList)
-      if (chanList.length > 0 && !selectedChannel) {
-        handleSelectChannel(chanList[0])
+      // Logic simplified to use Group Chat
+      if (!selectedChannel) {
+        // Assume default "General" channel exists or fetch logic
+        const chan = { id: 'general', name: 'Group Chat' }
+        handleSelectChannel(chan)
       }
     } catch (err) {
       console.error('Error loading channels:', err)
@@ -238,21 +265,6 @@ export default function WorkspaceHubPage() {
     setThreadInput('')
   }
 
-  const handleCreateChannel = async (e) => {
-    e.preventDefault()
-    if (!newChanName) return
-    try {
-      const chan = await api.chat.createChannel(workspace_id, newChanName, newChanDesc)
-      setChannels([...channels, chan])
-      setNewChanName('')
-      setNewChanDesc('')
-      handleSelectChannel(chan)
-      alert('Channel created!')
-    } catch (err) {
-      alert(err.message)
-    }
-  }
-
   const openThread = async (msg) => {
     setThreadParent(msg)
     try {
@@ -288,20 +300,64 @@ export default function WorkspaceHubPage() {
 
   const handleInviteMember = async (e) => {
     e.preventDefault()
-    if (!inviteEmail.trim()) return
+    
+    // Filter out completely empty rows
+    const validInvites = invites.filter(inv => inv.email.trim() !== '')
+    if (validInvites.length === 0) return
+
     setInviteLoading(true)
     setInviteMessage('')
 
+    let successCount = 0
+    let errors = []
+
+    for (const inv of validInvites) {
+      try {
+        await api.workspaces.invite(workspace_id, inv.email.trim(), inv.role)
+        successCount++
+      } catch (err) {
+        errors.push(`${inv.email}: ${err.message || 'Error'}`)
+      }
+    }
+
+    if (errors.length > 0) {
+      setInviteMessage(`Processed ${successCount} emails. Errors: ${errors.join(', ')}`)
+    } else {
+      setInviteMessage(`Successfully whitelisted ${successCount} email(s)!`)
+      setInvites([{ email: '', role: 'Member' }])
+    }
+    
+    if (successCount > 0) {
+      try {
+        const invs = await api.workspaces.invitations(workspace_id)
+        setPendingInvitations(invs)
+      } catch (e) {}
+    }
+    
     try {
-      await api.workspaces.invite(workspace_id, inviteEmail.trim(), inviteRole)
-      setInviteMessage(`Invite sent to ${inviteEmail.trim()}`)
-      setInviteEmail('')
       const members = await api.workspaces.members(workspace_id)
       setWorkspaceMembers(members)
+    } catch(err) {}
+
+    setInviteLoading(false)
+  }
+
+  const handleDeleteInvitation = async (invitationId) => {
+    try {
+      await api.workspaces.deleteInvitation(workspace_id, invitationId)
+      setPendingInvitations(pendingInvitations.filter(inv => inv.id !== invitationId))
     } catch (err) {
-      setInviteMessage(err.message || 'Could not send invite.')
-    } finally {
-      setInviteLoading(false)
+      alert(err.message)
+    }
+  }
+
+  const handleRemoveMember = async (userId) => {
+    if (!confirm('Are you sure you want to remove this member from the workspace? They will lose all access immediately.')) return;
+    try {
+      await api.workspaces.removeMember(workspace_id, userId)
+      setWorkspaceMembers(workspaceMembers.filter(m => m.user_id !== userId))
+    } catch (err) {
+      alert(err.message)
     }
   }
 
@@ -474,7 +530,10 @@ export default function WorkspaceHubPage() {
         <div className="flex items-center gap-8">
           {/* Notifications Indicator */}
           <div className="relative cursor-pointer hover:-translate-y-0.5 transition-transform" onClick={() => handleTabChange('notifications')}>
-            <span className="text-xl">🔔</span>
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="black" stroke="black" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-black">
+              <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+              <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+            </svg>
             {bellCount > 0 && (
               <span className="absolute -top-2 -right-2 bg-black text-white text-[10px] font-bold w-5 h-5 flex items-center justify-center border border-black shadow-[2px_2px_0_#1a1a1a]">
                 {bellCount}
@@ -514,16 +573,27 @@ export default function WorkspaceHubPage() {
             ))}
           </div>
 
-          <button
-            onClick={() => router.push('/workspaces')}
-            className="w-full py-3 mt-8 border-2 border-black bg-[var(--paper-lift)] text-sm text-black font-bold shadow-[4px_4px_0_#1a1a1a] hover:-translate-y-0.5 hover:shadow-[4px_6px_0_#1a1a1a] transition-all"
-          >
-            &larr; Switch Workspace
-          </button>
+          <div className="mt-8 flex flex-col gap-4">
+            <button
+              onClick={() => router.push('/workspaces')}
+              className="w-full py-3 border-2 border-black bg-[var(--paper-lift)] text-sm text-black font-bold shadow-[4px_4px_0_#1a1a1a] hover:-translate-y-0.5 hover:shadow-[4px_6px_0_#1a1a1a] transition-all"
+            >
+              &larr; Switch Workspace
+            </button>
+
+            {currentUserRole === 'Owner' && (
+              <button
+                onClick={() => setShowDeleteConfirm(true)}
+                className="w-full py-3 border-2 border-red-900 bg-red-600 text-sm text-white font-bold uppercase tracking-widest shadow-[4px_4px_0_#7f1d1d] hover:-translate-y-0.5 hover:shadow-[4px_6px_0_#7f1d1d] transition-all"
+              >
+                Delete Workspace
+              </button>
+            )}
+          </div>
         </aside>
 
         {/* Tab Content Window */}
-        <main className="flex-grow p-10 overflow-y-auto bg-[var(--paper)]">
+        <main data-lenis-prevent="true" className="flex-grow p-10 overflow-y-auto bg-[var(--paper)]">
           
           {/* --- TAB A: DASHBOARD ANALYTICS --- */}
           {activeTab === 'dashboard' && (
@@ -550,52 +620,180 @@ export default function WorkspaceHubPage() {
                 </div>
               )}
 
-              <div className="p-8 bg-white border-2 border-black shadow-[8px_8px_0_#1a1a1a]">
-                <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-8">
-                  <div className="max-w-md">
-                    <h3 className="font-bold text-2xl font-space mb-2">Invite Team Members</h3>
+              {(currentUserRole === 'Owner' || currentUserRole === 'Admin') && (
+                <div className="p-8 bg-white border-2 border-black shadow-[8px_8px_0_#1a1a1a]">
+                <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-8">
+                  <div className="max-w-md pt-2">
+                    <h3 className="font-bold text-2xl font-space mb-2">Whitelist Team Members</h3>
                     <p className="text-sm font-medium">
-                      Add a company email, choose the workspace role, and send the room invite.
+                      Add company emails, choose roles, and generate a secure join link for your team.
                     </p>
                   </div>
 
-                  <form onSubmit={handleInviteMember} className="flex flex-col md:flex-row gap-4 md:items-end w-full lg:w-auto">
-                    <div className="flex flex-col gap-2 flex-grow">
-                      <label className="text-xs font-bold uppercase tracking-wider">Company Email</label>
-                      <input
-                        type="email"
-                        required
-                        placeholder="teammate@company.com"
-                        value={inviteEmail}
-                        onChange={(e) => setInviteEmail(e.target.value)}
-                        className="w-full px-4 py-3 bg-[var(--paper)] border-2 border-black text-sm font-medium focus:outline-none focus:bg-white transition-colors"
-                      />
-                    </div>
-                    <div className="flex flex-col gap-2">
-                      <label className="text-xs font-bold uppercase tracking-wider">Role</label>
-                      <select
-                        value={inviteRole}
-                        onChange={(e) => setInviteRole(e.target.value)}
-                        className="px-4 py-3 bg-[var(--paper)] border-2 border-black text-sm font-bold focus:outline-none cursor-pointer"
+                  <div className="flex flex-col w-full lg:w-auto gap-4">
+                    {invites.map((inv, idx) => (
+                      <div key={idx} className="flex flex-col md:flex-row gap-4 md:items-end w-full">
+                        <div className="flex flex-col gap-2 flex-grow">
+                          {idx === 0 && <label className="text-xs font-bold uppercase tracking-wider">Company Email</label>}
+                          <input
+                            type="email"
+                            required
+                            placeholder="teammate@company.com"
+                            value={inv.email}
+                            onChange={(e) => {
+                              const newInvites = [...invites];
+                              newInvites[idx].email = e.target.value;
+                              setInvites(newInvites);
+                            }}
+                            className="w-full px-4 py-3 bg-[var(--paper)] border-2 border-black text-sm font-medium focus:outline-none focus:bg-white transition-colors"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-2">
+                          {idx === 0 && <label className="text-xs font-bold uppercase tracking-wider">Role</label>}
+                          <div className="flex gap-2">
+                            <select
+                              value={inv.role}
+                              onChange={(e) => {
+                                const newInvites = [...invites];
+                                newInvites[idx].role = e.target.value;
+                                setInvites(newInvites);
+                              }}
+                              className="px-4 py-3 bg-[var(--paper)] border-2 border-black text-sm font-bold focus:outline-none cursor-pointer"
+                            >
+                              <option value="Member">Member</option>
+                              <option value="Admin">Admin</option>
+                            </select>
+                            {idx === 0 ? (
+                              <button
+                                type="button"
+                                onClick={() => setInvites([...invites, { email: '', role: 'Member' }])}
+                                className="px-4 py-3 bg-white border-2 border-black text-black font-black hover:-translate-y-0.5 hover:shadow-[4px_4px_0_#1a1a1a] transition-all"
+                                title="Add another invite"
+                              >
+                                +
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setInvites(invites.filter((_, i) => i !== idx))}
+                                className="px-4 py-3 bg-white border-2 border-black hover:bg-red-50 hover:text-red-600 font-bold transition-colors"
+                                title="Remove row"
+                              >
+                                ✕
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                    
+                    <div className="flex justify-end mt-2">
+                      <button
+                        type="button"
+                        onClick={handleInviteMember}
+                        disabled={inviteLoading}
+                        className="px-6 py-3 bg-[var(--gold)] border-2 border-black text-black font-bold text-sm uppercase tracking-wider hover:-translate-y-0.5 hover:shadow-[4px_4px_0_#1a1a1a] transition-all whitespace-nowrap"
                       >
-                        <option value="Member">Member</option>
-                        <option value="Admin">Admin</option>
-                      </select>
+                        {inviteLoading ? 'Processing...' : 'Authorize Members'}
+                      </button>
                     </div>
-                    <button
-                      type="submit"
-                      disabled={inviteLoading}
-                      className="px-6 py-3 bg-[var(--gold)] border-2 border-black text-black font-bold text-sm uppercase tracking-wider hover:-translate-y-0.5 hover:shadow-[4px_4px_0_#1a1a1a] transition-all whitespace-nowrap"
-                    >
-                      {inviteLoading ? 'Sending...' : 'Send Invite'}
-                    </button>
-                  </form>
+                  </div>
                 </div>
 
                 {inviteMessage && (
                   <p className="text-sm font-bold mt-6 bg-[var(--paper-lift)] border-2 border-black p-3 inline-block">{inviteMessage}</p>
                 )}
+
+                {pendingInvitations.length > 0 && (
+                  <div className="mt-8">
+                    <h4 className="text-sm font-bold uppercase tracking-widest border-b-2 border-black pb-2 mb-4">Pending Invitations</h4>
+                    <div className="flex flex-col gap-2">
+                      {pendingInvitations.map(inv => (
+                        <div key={inv.id} className="flex justify-between items-center p-4 bg-white border-2 border-black shadow-[4px_4px_0_#1a1a1a]">
+                          <div>
+                            <p className="font-bold">{inv.email}</p>
+                            <p className="text-xs uppercase tracking-wider text-yellow-600 font-bold">Pending • {inv.role}</p>
+                          </div>
+                          <button 
+                            onClick={() => handleDeleteInvitation(inv.id)}
+                            className="px-4 py-2 bg-black text-white text-xs font-bold uppercase tracking-wider hover:bg-red-600 transition-colors"
+                          >
+                            Revoke Invite
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {workspaceMembers.length > 0 && (
+                  <div className="mt-8">
+                    <h4 className="text-sm font-bold uppercase tracking-widest border-b-2 border-black pb-2 mb-4">Active Team Members</h4>
+                    <div className="flex flex-col gap-2">
+                      {workspaceMembers.map(member => (
+                        <div key={member.id} className="flex justify-between items-center p-4 bg-white border-2 border-black shadow-[4px_4px_0_#1a1a1a]">
+                          <div>
+                            <p className="font-bold">{member.full_name}</p>
+                            <p className="text-xs uppercase tracking-wider text-green-600 font-bold">Active • {member.role}</p>
+                          </div>
+                          {member.user_id !== currentUser?.id && (currentUserRole === 'Owner' || currentUserRole === 'Admin') && (
+                            <button 
+                              onClick={() => handleRemoveMember(member.user_id)}
+                              className="px-4 py-2 bg-black text-white text-xs font-bold uppercase tracking-wider hover:bg-red-600 transition-colors"
+                            >
+                              Remove Member
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {inviteLink && (
+                  <div className="mt-8 p-6 bg-[var(--gold)] border-2 border-black shadow-[4px_4px_0_#1a1a1a]">
+                    <p className="text-sm font-bold uppercase tracking-widest mb-2 text-black">Universal Join Link</p>
+                    <p className="text-xs mb-4 font-medium">Copy this link and share it with your team. Only whitelisted emails can join.</p>
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <div className="relative flex-grow">
+                        <input 
+                          type="text" 
+                          readOnly 
+                          value={showInviteLink ? inviteLink : '**************************************************'} 
+                          className="w-full px-4 py-3 bg-white border-2 border-black text-sm font-bold focus:outline-none pr-12"
+                        />
+                        <button 
+                          onClick={() => setShowInviteLink(!showInviteLink)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 p-2 hover:bg-[var(--paper)] transition-colors border-2 border-transparent hover:border-black"
+                          title="Toggle visibility"
+                        >
+                          {showInviteLink ? (
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
+                              <line x1="1" y1="1" x2="23" y2="23"></line>
+                            </svg>
+                          ) : (
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                              <circle cx="12" cy="12" r="3"></circle>
+                            </svg>
+                          )}
+                        </button>
+                      </div>
+                      <button 
+                        onClick={() => {
+                          navigator.clipboard.writeText(inviteLink);
+                          alert('Link copied to clipboard!');
+                        }}
+                        className="px-6 py-3 bg-black text-white border-2 border-black font-bold text-sm uppercase tracking-wider hover:-translate-y-0.5 transition-transform whitespace-nowrap"
+                      >
+                        Copy Link
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
+              )}
 
               {/* AI Report Section */}
               <div className="p-8 bg-[var(--paper-lift)] border-2 border-black shadow-[8px_8px_0_#1a1a1a]">
@@ -622,54 +820,35 @@ export default function WorkspaceHubPage() {
 
           {/* --- TAB B: TEAM CHAT --- */}
           {activeTab === 'chat' && (
-            <div className="flex h-full gap-8 overflow-hidden max-w-[1400px]">
-              {/* Left Panel: Channels List */}
-              <div className="w-1/4 bg-white border-2 border-black shadow-[6px_6px_0_#1a1a1a] p-5 flex flex-col justify-between">
-                <div>
-                  <h3 className="text-xs font-bold uppercase tracking-widest border-b-2 border-black pb-2 mb-4">Channels</h3>
-                  <div className="flex flex-col gap-2">
-                    {channels.map((chan) => (
-                      <button
-                        key={chan.id}
-                        onClick={() => handleSelectChannel(chan)}
-                        className={`w-full py-3 px-4 border-2 border-black text-sm font-bold text-left transition-all ${selectedChannel?.id === chan.id ? 'bg-black text-white shadow-[2px_2px_0_var(--gold)] translate-x-1' : 'bg-white hover:-translate-y-0.5 hover:shadow-[2px_2px_0_#1a1a1a]'}`}
-                      >
-                        # {chan.name}
-                      </button>
-                    ))}
+            <div className="flex h-full gap-6 overflow-hidden max-w-[1600px]">
+              
+              {/* Left Panel: Workspace Details */}
+              <div className="w-1/5 bg-white border-2 border-black shadow-[6px_6px_0_#1a1a1a] p-6 flex flex-col">
+                <h3 className="text-xs font-bold uppercase tracking-widest border-b-2 border-black pb-2 mb-6">Workspace Details</h3>
+                <div className="flex flex-col gap-4">
+                  <div>
+                    <div className="text-[10px] font-bold uppercase opacity-50 mb-1">Name</div>
+                    <div className="font-space font-bold text-xl leading-tight">{workspace?.name || 'Loading...'}</div>
+                  </div>
+                  {workspace?.description && (
+                    <div>
+                      <div className="text-[10px] font-bold uppercase opacity-50 mb-1">Description</div>
+                      <div className="text-sm font-medium leading-relaxed">{workspace.description}</div>
+                    </div>
+                  )}
+                  <div>
+                    <div className="text-[10px] font-bold uppercase opacity-50 mb-1">Workspace ID</div>
+                    <div className="text-xs font-mono bg-[var(--paper)] p-2 border-2 border-black">{workspace?.id || '...'}</div>
                   </div>
                 </div>
-
-                {/* Create Channel Form */}
-                <form onSubmit={handleCreateChannel} className="border-t-2 border-black pt-5 mt-5 flex flex-col gap-3">
-                  <input
-                    type="text"
-                    required
-                    placeholder="New channel name..."
-                    value={newChanName}
-                    onChange={(e) => setNewChanName(e.target.value)}
-                    className="w-full px-3 py-2 bg-[var(--paper)] border-2 border-black text-sm focus:outline-none focus:bg-white"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Description (optional)"
-                    value={newChanDesc}
-                    onChange={(e) => setNewChanDesc(e.target.value)}
-                    className="w-full px-3 py-2 bg-[var(--paper)] border-2 border-black text-sm focus:outline-none focus:bg-white"
-                  />
-                  <button
-                    type="submit"
-                    className="w-full py-3 bg-[var(--paper-lift)] border-2 border-black text-black text-xs font-bold uppercase tracking-widest hover:-translate-y-0.5 hover:shadow-[4px_4px_0_#1a1a1a] transition-all"
-                  >
-                    + Add Channel
-                  </button>
-                </form>
               </div>
 
               {/* Middle Panel: Active Chat Feed */}
               <div className="flex-grow flex flex-col bg-white border-2 border-black shadow-[6px_6px_0_#1a1a1a] overflow-hidden">
                 <div className="h-16 border-b-2 border-black px-6 flex items-center justify-between bg-[var(--paper-lift)]">
-                  <span className="font-bold text-lg"># {selectedChannel?.name}</span>
+                  <span className="font-bold text-lg font-space tracking-tight">
+                    {selectedChannel?.name.startsWith('DM:') ? '@ ' + selectedChannel?.name.replace('DM: ', '') : '# ' + (selectedChannel?.name || 'group-chat')}
+                  </span>
                   <span className="text-xs font-medium opacity-70">{selectedChannel?.description}</span>
                 </div>
 
@@ -761,6 +940,56 @@ export default function WorkspaceHubPage() {
                   </div>
                 </div>
               )}
+
+              {/* Right Panel: Members & Group Chat Navigation */}
+              {!threadParent && (
+                <div className="w-1/4 bg-white border-2 border-black shadow-[6px_6px_0_#1a1a1a] p-5 flex flex-col overflow-y-auto">
+                  <h3 className="text-xs font-bold uppercase tracking-widest border-b-2 border-black pb-2 mb-4">Chat Rooms</h3>
+                  
+                  <div className="flex flex-col gap-2 mb-6">
+                    {/* Group Chat Button */}
+                    {channels.filter(c => !c.is_dm && !c.is_private).map(chan => (
+                      <button
+                        key={chan.id}
+                        onClick={() => handleSelectChannel(chan)}
+                        className={`w-full py-3 px-4 border-2 border-black text-sm font-bold text-left transition-all ${selectedChannel?.id === chan.id ? 'bg-black text-white shadow-[2px_2px_0_var(--gold)] translate-x-1' : 'bg-[var(--paper-lift)] hover:-translate-y-0.5 hover:shadow-[2px_2px_0_#1a1a1a]'}`}
+                      >
+                        💬 Group Chat
+                      </button>
+                    ))}
+                  </div>
+
+                  <h3 className="text-xs font-bold uppercase tracking-widest border-b-2 border-black pb-2 mb-4">Direct Messages</h3>
+                  <div className="flex flex-col gap-2">
+                    {workspaceMembers.filter(m => {
+                      if (m.user_id === currentUser?.id) return false;
+                      if (currentUserRole === 'Owner' || currentUserRole === 'Admin') return true;
+                      return m.role === 'Owner';
+                    }).map(member => {
+                      // Find the DM channel for this member
+                      const dmChannel = channels.find(c => c.is_dm && (c.name === `DM: ${member.full_name}` || c.name === `DM: ${currentUser?.full_name}`));
+                      
+                      const isTeamHead = member.role === 'Owner';
+                      const displayName = isTeamHead ? `@ ${member.full_name} (Team Head)` : `@ ${member.full_name}`;
+
+                      return (
+                        <button
+                          key={member.user_id}
+                          onClick={() => {
+                            if (dmChannel) handleSelectChannel(dmChannel);
+                            else alert('DM channel not yet initialized for this member.');
+                          }}
+                          className={`w-full py-3 px-4 border-2 border-black text-sm font-bold text-left transition-all flex items-center justify-between ${selectedChannel?.id === dmChannel?.id ? 'bg-black text-white shadow-[2px_2px_0_var(--gold)] translate-x-1' : 'bg-white hover:-translate-y-0.5 hover:shadow-[2px_2px_0_#1a1a1a]'}`}
+                        >
+                          <span className="truncate">{displayName}</span>
+                          <span className="text-[10px] font-mono px-2 py-1 bg-[var(--paper)] text-black border border-black flex-shrink-0">{member.role}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
             </div>
           )}
 
@@ -1153,9 +1382,16 @@ export default function WorkspaceHubPage() {
           {activeTab === 'notifications' && (
             <div className="flex flex-col gap-10 max-w-3xl">
               <div className="flex justify-between items-end border-b-4 border-black pb-4">
-                <div>
-                  <h2 className="text-4xl font-space font-bold">In-App Notifications</h2>
-                  <p className="text-sm font-medium mt-2">Recipients feed triggered by Chat @mentions</p>
+                <div className="flex items-center gap-6">
+                  <button onClick={() => handleTabChange('dashboard')} className="p-2 border-2 border-black hover:-translate-y-0.5 hover:shadow-[4px_4px_0_#1a1a1a] bg-white transition-all" title="Back to Dashboard">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M19 12H5M12 19l-7-7 7-7"/>
+                    </svg>
+                  </button>
+                  <div>
+                    <h2 className="text-4xl font-space font-bold">In-App Notifications</h2>
+                    <p className="text-sm font-medium mt-2">Recipients feed triggered by Chat @mentions</p>
+                  </div>
                 </div>
                 <button
                   onClick={markAllNotificationsRead}
@@ -1199,6 +1435,36 @@ export default function WorkspaceHubPage() {
 
         </main>
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-white border-4 border-black shadow-[12px_12px_0_#1a1a1a] max-w-lg w-full p-8 flex flex-col gap-6">
+            <h2 className="text-3xl font-space font-bold text-red-600 uppercase tracking-wide">Delete Project Room?</h2>
+            <div className="bg-red-50 border-l-4 border-red-600 p-4">
+              <p className="text-sm font-bold text-red-900 leading-relaxed">
+                Are you sure you want to permanently delete this project room? 
+                <br /><br />
+                If done, <span className="underline">no data</span> can be recovered afterward. This action cannot be undone.
+              </p>
+            </div>
+            <div className="flex justify-end gap-4 mt-4">
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                className="px-6 py-3 bg-white text-black border-2 border-black font-bold text-sm uppercase tracking-wider hover:-translate-y-0.5 hover:shadow-[4px_4px_0_#1a1a1a] transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={executeDeleteWorkspace}
+                className="px-6 py-3 bg-red-600 text-white border-2 border-black font-bold text-sm uppercase tracking-wider hover:-translate-y-0.5 hover:shadow-[4px_4px_0_#7f1d1d] transition-all"
+              >
+                Confirm Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

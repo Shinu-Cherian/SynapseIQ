@@ -40,13 +40,19 @@ def create_channel(db: Session, workspace_id: str, channel_in: ChannelCreate) ->
     db.refresh(db_channel)
     return db_channel
 
-def get_workspace_channels(db: Session, workspace_id: str) -> List[Channel]:
+from sqlalchemy import or_
+
+def get_workspace_channels(db: Session, workspace_id: str, current_user_id: int) -> List[Channel]:
     """
-    Retrieves all public channels inside a workspace.
+    Retrieves all public channels plus any DMs where the user is a participant.
     """
     return db.query(Channel).filter(
         Channel.workspace_id == workspace_id,
-        Channel.is_private == False
+        or_(
+            Channel.is_private == False,
+            Channel.dm_user_1_id == current_user_id,
+            Channel.dm_user_2_id == current_user_id
+        )
     ).all()
 
 def save_message(
