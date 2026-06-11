@@ -4,7 +4,7 @@ import shutil
 from typing import List, Optional
 from sqlalchemy.orm import Session
 from fastapi import UploadFile, HTTPException, status
-from app.modules.documents.models import Document, DocumentVersion
+from app.modules.documents.models import Document, DocumentVersion, DocumentViewer
 
 # Local directory where files will be saved
 STORAGE_DIR = os.path.join(os.getcwd(), "storage")
@@ -44,7 +44,9 @@ def create_document(
     category: str,
     creator_id: int,
     file: UploadFile,
-    changelog: Optional[str] = "Initial upload"
+    changelog: Optional[str] = "Initial upload",
+    is_public: bool = True,
+    viewer_ids: Optional[List[int]] = None
 ) -> Document:
     """
     Saves file to disk and registers Document metadata and Version 1 in DB.
@@ -60,6 +62,7 @@ def create_document(
         workspace_id=workspace_id,
         title=title.strip(),
         category=category.strip(),
+        is_public=is_public,
         creator_id=creator_id
     )
     db.add(db_document)
@@ -78,6 +81,15 @@ def create_document(
     db.add(db_version)
     db.commit()
     db.refresh(db_document)
+
+    # 5. Add viewers if not public
+    if not is_public and viewer_ids:
+        for vid in viewer_ids:
+            # Prevent creating a record for the creator as they already have access
+            if vid != creator_id:
+                viewer_record = DocumentViewer(document_id=db_document.id, user_id=vid)
+                db.add(viewer_record)
+        db.commit()
     
     return db_document
 
@@ -132,16 +144,42 @@ def add_new_version(
 
 def get_workspace_documents(
     db: Session, 
-    workspace_id: str, 
+    workspace_id: str,
+    current_user_id: int,
+    current_user_role: str,
     category: Optional[str] = None
 ) -> List[Document]:
     """
-    Retrieves all documents belonging to a workspace, optionally filtered by category.
+    Retrieves all documents belonging to a workspace.
+    Enforces visibility access control.
     """
     query = db.query(Document).filter(Document.workspace_id == workspace_id)
     if category:
         query = query.filter(Document.category == category.strip())
-    return query.all()
+
+    documents = query.all()
+    
+    # Filter by access control
+    # Owners and Admins can see everything
+    if current_user_role in ["Owner", "Admin"]:
+        return documents
+
+    visible_docs = []
+    for doc in documents:
+        if doc.is_public:
+            visible_docs.append(doc)
+        elif doc.creator_id == current_user_id:
+            visible_docs.append(doc)
+        else:
+            # Check if user is in DocumentViewer
+            viewer_exists = db.query(DocumentViewer).filter(
+                DocumentViewer.document_id == doc.id,
+                DocumentViewer.user_id == current_user_id
+            ).first()
+            if viewer_exists:
+                visible_docs.append(doc)
+                
+    return visible_docs
 
 def get_document_versions(db: Session, document_id: int) -> List[DocumentVersion]:
     """
@@ -174,3 +212,40 @@ def get_version_file_path(
         )
         
     return version
+
+def update_document_access(
+    db: Session,
+    workspace_id: str,
+    document_id: int,
+    is_public: bool,
+    viewer_ids: List[int],
+    current_user_id: int,
+    current_user_role: str
+) -> Document:
+    document = db.query(Document).filter(
+        Document.id == document_id,
+        Document.workspace_id == workspace_id
+    ).first()
+    
+    if not document:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+        
+    # Security check: only Owner, Admin, or Creator can edit access
+    if current_user_role not in ["Owner", "Admin"] and document.creator_id != current_user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to edit access")
+        
+    document.is_public = is_public
+    
+    # Delete existing viewers
+    db.query(DocumentViewer).filter(DocumentViewer.document_id == document_id).delete()
+    
+    # Add new viewers if restricted
+    if not is_public and viewer_ids:
+        for vid in viewer_ids:
+            if vid != document.creator_id:
+                viewer_record = DocumentViewer(document_id=document_id, user_id=vid)
+                db.add(viewer_record)
+                
+    db.commit()
+    db.refresh(document)
+    return document

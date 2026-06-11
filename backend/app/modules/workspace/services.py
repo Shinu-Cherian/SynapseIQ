@@ -45,6 +45,18 @@ def create_workspace(db: Session, workspace_in: WorkspaceCreate, owner_id: int) 
         role="Owner"
     )
     db.add(membership)
+    
+    # 4. Create a default 'general' public channel
+    from app.modules.chat.models import Channel
+    general_channel = Channel(
+        workspace_id=db_workspace.id,
+        name="general",
+        description="General group chat for everyone",
+        is_private=False,
+        is_dm=False
+    )
+    db.add(general_channel)
+    
     db.commit()
     db.refresh(db_workspace)
     return db_workspace

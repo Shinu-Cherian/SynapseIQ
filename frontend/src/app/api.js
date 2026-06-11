@@ -159,10 +159,17 @@ export const api = {
       }).then(handleResponse),
       
     updateTaskStatus: (workspaceId, taskId, status) => 
-      fetch(`${BASE_URL}/workspaces/${workspaceId}/projects/tasks/${taskId}/status`, {
+      fetch(`${BASE_URL}/workspaces/${workspaceId}/projects/tasks/${taskId}`, {
         method: 'PATCH',
         headers: getHeaders(),
         body: JSON.stringify({ status })
+      }).then(handleResponse),
+      
+    updateTaskAssignee: (workspaceId, taskId, assigneeId) => 
+      fetch(`${BASE_URL}/workspaces/${workspaceId}/projects/tasks/${taskId}`, {
+        method: 'PATCH',
+        headers: getHeaders(),
+        body: JSON.stringify({ assignee_id: assigneeId })
       }).then(handleResponse)
   },
 
@@ -204,13 +211,15 @@ export const api = {
         headers: getHeaders()
       }).then(handleResponse),
       
-    upload: (workspaceId, file, title, category) => {
+    upload: (workspaceId, file, title, category, isPublic = true, viewerIds = []) => {
       const formData = new FormData()
       formData.append('file', file)
       formData.append('title', title)
-      formData.append('category', category)
+      formData.append('category', category || 'General')
+      formData.append('is_public', isPublic)
+      formData.append('viewer_ids', JSON.stringify(viewerIds))
       
-      return fetch(`${BASE_URL}/workspaces/${workspaceId}/documents/upload`, {
+      return fetch(`${BASE_URL}/workspaces/${workspaceId}/documents`, {
         method: 'POST',
         headers: getHeaders(true),
         body: formData
@@ -226,7 +235,19 @@ export const api = {
     getDownloadUrl: (workspaceId, docId, versionNum) => {
       const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : ''
       return `${BASE_URL}/workspaces/${workspaceId}/documents/${docId}/download?version_number=${versionNum}&token=${token}`
-    }
+    },
+    
+    getViewUrl: (workspaceId, docId, versionNum) => {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : ''
+      return `${BASE_URL}/workspaces/${workspaceId}/documents/${docId}/download?version_number=${versionNum}&inline=true&token=${token}`
+    },
+    
+    updateAccess: (workspaceId, documentId, isPublic, viewerIds) => 
+      fetch(`${BASE_URL}/workspaces/${workspaceId}/documents/${documentId}/access`, {
+        method: 'PATCH',
+        headers: getHeaders(),
+        body: JSON.stringify({ is_public: isPublic, viewer_ids: viewerIds })
+      }).then(handleResponse)
   },
 
   meetings: {

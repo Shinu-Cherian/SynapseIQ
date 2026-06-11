@@ -21,7 +21,13 @@ class DocumentResponse(BaseModel):
     workspace_id: str
     title: str
     category: Optional[str] = "General"
+    is_public: bool
     creator_id: Optional[int] = None
+    viewer_ids: list[int] = []
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+class DocumentAccessUpdate(BaseModel):
+    is_public: bool
+    viewer_ids: list[int] = []

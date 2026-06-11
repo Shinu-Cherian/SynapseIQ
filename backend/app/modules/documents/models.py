@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Boolean
 from sqlalchemy.orm import relationship
 from app.core.database import Base
 
@@ -10,6 +10,7 @@ class Document(Base):
     workspace_id = Column(String, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
     title = Column(String, nullable=False, index=True)
     category = Column(String, nullable=True, index=True, default="General") # E.g., HR, Tech, Finance
+    is_public = Column(Boolean, default=True, nullable=False)
     creator_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
@@ -17,6 +18,22 @@ class Document(Base):
     workspace = relationship("Workspace")
     creator = relationship("User")
     versions = relationship("DocumentVersion", back_populates="document", cascade="all, delete-orphan")
+    viewers = relationship("DocumentViewer", back_populates="document", cascade="all, delete-orphan")
+
+    @property
+    def viewer_ids(self) -> list[int]:
+        return [v.user_id for v in self.viewers]
+
+class DocumentViewer(Base):
+    __tablename__ = "document_viewers"
+
+    id = Column(Integer, primary_key=True, index=True)
+    document_id = Column(Integer, ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+
+    # Relationships
+    document = relationship("Document", back_populates="viewers")
+    user = relationship("User")
 
 class DocumentVersion(Base):
     __tablename__ = "document_versions"

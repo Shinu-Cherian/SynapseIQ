@@ -61,8 +61,8 @@ def create_task(
     project_id: int,
     task_in: schemas.TaskCreate,
     db: Session = Depends(get_db),
-    # Guard: Workspace users can create tasks
-    current_member: WorkspaceMember = Depends(RequireWorkspaceRole(["Owner", "Admin", "Member"]))
+    # Guard: Workspace owners/admins can create tasks
+    current_member: WorkspaceMember = Depends(RequireWorkspaceRole(["Owner", "Admin"]))
 ):
     """
     Creates a task inside a workspace project.
@@ -71,7 +71,8 @@ def create_task(
         db, 
         workspace_id=workspace_id, 
         project_id=project_id, 
-        task_in=task_in
+        task_in=task_in,
+        current_user_id=current_member.user_id
     )
 
 @router.get("/{project_id}/tasks", response_model=List[schemas.TaskResponse])

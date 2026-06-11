@@ -16,6 +16,9 @@ class ChannelCreate(ChannelBase):
 class ChannelResponse(ChannelBase):
     id: int
     workspace_id: str
+    is_dm: bool = False
+    dm_user_1_id: Optional[int] = None
+    dm_user_2_id: Optional[int] = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

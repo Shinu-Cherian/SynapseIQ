@@ -17,6 +17,8 @@ def upload_document(
     title: str = Form(..., description="Display title of the document"),
     category: str = Form("General", description="Tag/Category e.g. HR, Tech"),
     changelog: str = Form("Initial upload", description="Changelog description for first version"),
+    is_public: bool = Form(True),
+    viewer_ids: str = Form(""),
     file: UploadFile = File(..., description="Document file to upload (PDF, DOCX, etc.)"),
     db: Session = Depends(get_db),
     # Guard: Any workspace member can upload documents
@@ -24,8 +26,15 @@ def upload_document(
 ):
     """
     Uploads a new document to the workspace.
-    Saves the file to local storage and creates Version 1 in database records.
     """
+    import json
+    v_ids = []
+    if viewer_ids:
+        try:
+            v_ids = json.loads(viewer_ids)
+        except Exception:
+            pass
+            
     return services.create_document(
         db,
         workspace_id=workspace_id,
@@ -33,7 +42,9 @@ def upload_document(
         category=category,
         creator_id=current_member.user_id,
         file=file,
-        changelog=changelog
+        changelog=changelog,
+        is_public=is_public,
+        viewer_ids=v_ids
     )
 
 @router.post("/{document_id}/versions", response_model=schemas.DocumentVersionResponse, status_code=status.HTTP_201_CREATED)
@@ -69,7 +80,13 @@ def get_documents(
     """
     Lists all documents inside a workspace, optionally filtered by category.
     """
-    return services.get_workspace_documents(db, workspace_id=workspace_id, category=category)
+    return services.get_workspace_documents(
+        db, 
+        workspace_id=workspace_id, 
+        current_user_id=current_member.user_id,
+        current_user_role=current_member.role,
+        category=category
+    )
 
 @router.get("/{document_id}/versions", response_model=List[schemas.DocumentVersionResponse])
 def get_versions(
@@ -81,15 +98,12 @@ def get_versions(
     """
     Retrieves the history of all versions for a specific document.
     """
-    # Verify document belongs to workspace
-    document = db.query(Document).filter(
-        Document.id == document_id,
-        Document.workspace_id == workspace_id
-    ).first()
-    if not document:
+    # Verify access using get_workspace_documents
+    visible_docs = services.get_workspace_documents(db, workspace_id, current_member.user_id, current_member.role)
+    if not any(d.id == document_id for d in visible_docs):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Document not found in this workspace"
+            detail="Document not found or access denied"
         )
     return services.get_document_versions(db, document_id=document_id)
 
@@ -97,21 +111,20 @@ def get_versions(
 def download_latest_version(
     workspace_id: str,
     document_id: int,
+    inline: bool = False,
     db: Session = Depends(get_db),
     current_member: WorkspaceMember = Depends(RequireWorkspaceRole(["Owner", "Admin", "Member"]))
 ):
     """
     Downloads the latest version of a document.
     """
-    # 1. Verify document exists in workspace
-    document = db.query(Document).filter(
-        Document.id == document_id,
-        Document.workspace_id == workspace_id
-    ).first()
+    # Verify access using get_workspace_documents
+    visible_docs = services.get_workspace_documents(db, workspace_id, current_member.user_id, current_member.role)
+    document = next((d for d in visible_docs if d.id == document_id), None)
     if not document:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Document not found in this workspace"
+            detail="Document not found or access denied"
         )
         
     # 2. Get latest version file metadata
@@ -129,7 +142,8 @@ def download_latest_version(
     return FileResponse(
         path=db_version.file_path,
         media_type=db_version.file_type,
-        filename=f"{document.title}{file_ext}"
+        filename=f"{document.title}{file_ext}",
+        content_disposition_type="inline" if inline else "attachment"
     )
 
 @router.get("/{document_id}/download/{version_number}")
@@ -137,21 +151,20 @@ def download_specific_version(
     workspace_id: str,
     document_id: int,
     version_number: int,
+    inline: bool = False,
     db: Session = Depends(get_db),
     current_member: WorkspaceMember = Depends(RequireWorkspaceRole(["Owner", "Admin", "Member"]))
 ):
     """
     Downloads a specific version of a document.
     """
-    # 1. Verify document
-    document = db.query(Document).filter(
-        Document.id == document_id,
-        Document.workspace_id == workspace_id
-    ).first()
+    # Verify access using get_workspace_documents
+    visible_docs = services.get_workspace_documents(db, workspace_id, current_member.user_id, current_member.role)
+    document = next((d for d in visible_docs if d.id == document_id), None)
     if not document:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Document not found in this workspace"
+            detail="Document not found or access denied"
         )
         
     # 2. Get version metadata
@@ -167,5 +180,28 @@ def download_specific_version(
     return FileResponse(
         path=db_version.file_path,
         media_type=db_version.file_type,
-        filename=f"{document.title}_v{version_number}{file_ext}"
+        filename=f"{document.title}_v{version_number}{file_ext}",
+        content_disposition_type="inline" if inline else "attachment"
+    )
+
+@router.patch("/{document_id}/access", response_model=schemas.DocumentResponse)
+def update_document_access(
+    workspace_id: str,
+    document_id: int,
+    access_update: schemas.DocumentAccessUpdate,
+    db: Session = Depends(get_db),
+    current_member: WorkspaceMember = Depends(RequireWorkspaceRole(["Owner", "Admin", "Member"]))
+):
+    """
+    Updates the visibility access of a document.
+    Only the Creator or a Team Head can perform this action.
+    """
+    return services.update_document_access(
+        db,
+        workspace_id=workspace_id,
+        document_id=document_id,
+        is_public=access_update.is_public,
+        viewer_ids=access_update.viewer_ids,
+        current_user_id=current_member.user_id,
+        current_user_role=current_member.role
     )

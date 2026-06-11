@@ -59,7 +59,12 @@ export default function WorkspaceHubPage() {
   const [documents, setDocuments] = useState([])
   const [docFile, setDocFile] = useState(null)
   const [docTitle, setDocTitle] = useState('')
-  const [docCategory, setDocCategory] = useState('General')
+  const [docCategory, setDocCategory] = useState('')
+  const [docIsPublic, setDocIsPublic] = useState(true)
+  const [docViewerIds, setDocViewerIds] = useState([])
+  const [editingAccessDocId, setEditingAccessDocId] = useState(null)
+  const [editDocIsPublic, setEditDocIsPublic] = useState(true)
+  const [editDocViewerIds, setEditDocViewerIds] = useState([])
   const [selectedDocVersions, setSelectedDocVersions] = useState([])
   const [selectedDocTitle, setSelectedDocTitle] = useState('')
 
@@ -379,14 +384,24 @@ export default function WorkspaceHubPage() {
   const handleCreateTask = async (e) => {
     e.preventDefault()
     if (!newTaskTitle || !selectedProject) return
-    const assignee = newTaskAssignee ? parseInt(newTaskAssignee) : null
+    
     try {
-      const created = await api.projects.createTask(workspace_id, selectedProject.id, newTaskTitle, newTaskDesc, 'To Do', assignee)
-      setTasks([...tasks, created])
+      if (newTaskAssignee === 'all') {
+        const newTasks = [];
+        for (const member of workspaceMembers) {
+          const created = await api.projects.createTask(workspace_id, selectedProject.id, newTaskTitle, newTaskDesc, 'To Do', member.user_id)
+          newTasks.push(created)
+        }
+        setTasks([...tasks, ...newTasks])
+      } else {
+        const assignee = newTaskAssignee ? parseInt(newTaskAssignee) : null
+        const created = await api.projects.createTask(workspace_id, selectedProject.id, newTaskTitle, newTaskDesc, 'To Do', assignee)
+        setTasks([...tasks, created])
+      }
       setNewTaskTitle('')
       setNewTaskDesc('')
       setNewTaskAssignee('')
-      alert('Task added!')
+      alert('Task(s) added!')
     } catch (err) {
       alert(err.message)
     }
@@ -397,6 +412,17 @@ export default function WorkspaceHubPage() {
       await api.projects.updateTaskStatus(workspace_id, taskId, newStatus)
       // Update local task state
       setTasks(tasks.map(t => t.id === taskId ? { ...t, status: newStatus } : t))
+    } catch (err) {
+      alert(err.message)
+    }
+  }
+
+  const handleTaskAssigneeChange = async (taskId, newAssigneeId) => {
+    try {
+      const assignee = newAssigneeId ? parseInt(newAssigneeId) : null;
+      await api.projects.updateTaskAssignee(workspace_id, taskId, assignee)
+      // Update local task state
+      setTasks(tasks.map(t => t.id === taskId ? { ...t, assignee_id: assignee } : t))
     } catch (err) {
       alert(err.message)
     }
@@ -416,10 +442,13 @@ export default function WorkspaceHubPage() {
     e.preventDefault()
     if (!docFile || !docTitle) return
     try {
-      const uploaded = await api.documents.upload(workspace_id, docFile, docTitle, docCategory)
+      const uploaded = await api.documents.upload(workspace_id, docFile, docTitle, docCategory, docIsPublic, docViewerIds)
       setDocuments([uploaded, ...documents])
       setDocFile(null)
       setDocTitle('')
+      setDocCategory('')
+      setDocIsPublic(true)
+      setDocViewerIds([])
       alert('Document uploaded successfully!')
     } catch (err) {
       alert(err.message)
@@ -433,6 +462,17 @@ export default function WorkspaceHubPage() {
       setSelectedDocVersions(versions)
     } catch (err) {
       console.error(err)
+    }
+  }
+
+  const handleUpdateAccess = async (docId) => {
+    try {
+      const updatedDoc = await api.documents.updateAccess(workspace_id, docId, editDocIsPublic, editDocViewerIds)
+      setDocuments(documents.map(d => d.id === docId ? updatedDoc : d))
+      setEditingAccessDocId(null)
+      alert("Access updated successfully!")
+    } catch (err) {
+      alert(err.message)
     }
   }
 
@@ -847,7 +887,14 @@ export default function WorkspaceHubPage() {
               <div className="flex-grow flex flex-col bg-white border-2 border-black shadow-[6px_6px_0_#1a1a1a] overflow-hidden">
                 <div className="h-16 border-b-2 border-black px-6 flex items-center justify-between bg-[var(--paper-lift)]">
                   <span className="font-bold text-lg font-space tracking-tight">
-                    {selectedChannel?.name.startsWith('DM:') ? '@ ' + selectedChannel?.name.replace('DM: ', '') : '# ' + (selectedChannel?.name || 'group-chat')}
+                    {(() => {
+                      if (selectedChannel?.is_dm) {
+                        const otherUserId = selectedChannel.dm_user_1_id === currentUser?.id ? selectedChannel.dm_user_2_id : selectedChannel.dm_user_1_id;
+                        const otherUser = workspaceMembers.find(m => m.user_id === otherUserId);
+                        return otherUser ? `@ ${otherUser.full_name}` : '@ Personal Chat';
+                      }
+                      return '💬 Group Chat';
+                    })()}
                   </span>
                   <span className="text-xs font-medium opacity-70">{selectedChannel?.description}</span>
                 </div>
@@ -944,7 +991,7 @@ export default function WorkspaceHubPage() {
               {/* Right Panel: Members & Group Chat Navigation */}
               {!threadParent && (
                 <div className="w-1/4 bg-white border-2 border-black shadow-[6px_6px_0_#1a1a1a] p-5 flex flex-col overflow-y-auto">
-                  <h3 className="text-xs font-bold uppercase tracking-widest border-b-2 border-black pb-2 mb-4">Chat Rooms</h3>
+                  <h3 className="text-xs font-bold uppercase tracking-widest border-b-2 border-black pb-2 mb-4">Group Chat</h3>
                   
                   <div className="flex flex-col gap-2 mb-6">
                     {/* Group Chat Button */}
@@ -959,7 +1006,7 @@ export default function WorkspaceHubPage() {
                     ))}
                   </div>
 
-                  <h3 className="text-xs font-bold uppercase tracking-widest border-b-2 border-black pb-2 mb-4">Direct Messages</h3>
+                  <h3 className="text-xs font-bold uppercase tracking-widest border-b-2 border-black pb-2 mb-4">Personal Chat</h3>
                   <div className="flex flex-col gap-2">
                     {workspaceMembers.filter(m => {
                       if (m.user_id === currentUser?.id) return false;
@@ -995,7 +1042,7 @@ export default function WorkspaceHubPage() {
 
           {/* --- TAB C: PROJECTS & KANBAN --- */}
           {activeTab === 'projects' && (
-            <div className="flex flex-col gap-10 h-full max-w-[1600px]">
+            <div className="flex flex-col gap-10 min-h-full max-w-[1600px] pb-10">
               <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
                 <div>
                   <h2 className="text-4xl font-space font-bold border-b-4 border-black pb-4">Sprint Manager</h2>
@@ -1005,7 +1052,8 @@ export default function WorkspaceHubPage() {
                 </div>
 
                 {/* Project Creator Form */}
-                <form onSubmit={handleCreateProject} className="flex flex-wrap gap-4">
+                {(currentUserRole === 'Owner' || currentUserRole === 'Admin') && (
+                  <form onSubmit={handleCreateProject} className="flex flex-wrap gap-4">
                   <input
                     type="text"
                     required
@@ -1027,7 +1075,8 @@ export default function WorkspaceHubPage() {
                   >
                     + Project
                   </button>
-                </form>
+                  </form>
+                )}
               </div>
 
               {/* Selector */}
@@ -1044,7 +1093,7 @@ export default function WorkspaceHubPage() {
               </div>
 
               {/* Kanban board layout */}
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 flex-grow overflow-hidden">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 flex-grow">
                 {['To Do', 'In Progress', 'Done'].map((col) => {
                   const columnTasks = tasks.filter(t => t.status === col)
                   const colBg = col === 'To Do' ? 'bg-[var(--paper-lift)]' : col === 'In Progress' ? 'bg-[#b7a36a]/20' : 'bg-[#3f6f55]/20';
@@ -1057,26 +1106,48 @@ export default function WorkspaceHubPage() {
                       </div>
 
                       <div className="flex flex-col gap-4 flex-grow overflow-y-auto pr-2">
-                        {columnTasks.map((t) => (
+                        {columnTasks.map((t) => {
+                          const assignedMember = workspaceMembers.find(m => m.user_id === t.assignee_id);
+                          return (
                           <div key={t.id} className="p-4 bg-white border-2 border-black shadow-[4px_4px_0_rgba(0,0,0,1)] hover:-translate-y-1 hover:shadow-[6px_6px_0_rgba(0,0,0,1)] transition-transform flex flex-col gap-3">
                             <h4 className="font-bold text-sm">{t.title}</h4>
                             <p className="text-xs font-medium leading-relaxed opacity-80">{t.description}</p>
-                            <div className="text-[10px] font-bold tracking-wider uppercase mt-1 bg-[var(--paper)] p-2 border-2 border-black self-start">Assignee: {t.assignee_id || 'Unassigned'}</div>
+                            {(currentUserRole === 'Owner' || currentUserRole === 'Admin') ? (
+                              <div className="mt-1 self-start">
+                                <select 
+                                  value={t.assignee_id || ""} 
+                                  onChange={(e) => handleTaskAssigneeChange(t.id, e.target.value)}
+                                  className="text-[10px] font-bold tracking-wider uppercase bg-[var(--paper)] p-2 border-2 border-black focus:outline-none cursor-pointer"
+                                >
+                                  <option value="">Unassigned</option>
+                                  {workspaceMembers.map(m => (
+                                    <option key={m.user_id} value={m.user_id}>{m.full_name}</option>
+                                  ))}
+                                </select>
+                              </div>
+                            ) : (
+                              <div className="text-[10px] font-bold tracking-wider uppercase mt-1 bg-[var(--paper)] p-2 border-2 border-black self-start">
+                                Assigned to: {assignedMember ? assignedMember.full_name : 'Unassigned'}
+                              </div>
+                            )}
                             
                             {/* Simple Status Toggler buttons */}
-                            <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t-2 border-black/10">
-                              {col !== 'To Do' && (
-                                <button onClick={() => handleTaskStatusChange(t.id, 'To Do')} className="px-3 py-1.5 bg-white border-2 border-black text-[10px] font-bold uppercase tracking-wider hover:bg-black hover:text-white transition-colors">To Do</button>
-                              )}
-                              {col !== 'In Progress' && (
-                                <button onClick={() => handleTaskStatusChange(t.id, 'In Progress')} className="px-3 py-1.5 bg-white border-2 border-black text-[10px] font-bold uppercase tracking-wider hover:bg-[var(--gold)] transition-colors">In Dev</button>
-                              )}
-                              {col !== 'Done' && (
-                                <button onClick={() => handleTaskStatusChange(t.id, 'Done')} className="px-3 py-1.5 bg-white border-2 border-black text-[10px] font-bold uppercase tracking-wider hover:bg-[var(--green)] hover:text-white transition-colors">Done</button>
-                              )}
-                            </div>
+                            {(currentUserRole === 'Owner' || currentUserRole === 'Admin' || t.assignee_id === currentUser?.id) && (
+                              <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t-2 border-black/10">
+                                {col !== 'To Do' && (
+                                  <button onClick={() => handleTaskStatusChange(t.id, 'To Do')} className="px-3 py-1.5 bg-white border-2 border-black text-[10px] font-bold uppercase tracking-wider hover:bg-black hover:text-white transition-colors">To Do</button>
+                                )}
+                                {col !== 'In Progress' && (
+                                  <button onClick={() => handleTaskStatusChange(t.id, 'In Progress')} className="px-3 py-1.5 bg-white border-2 border-black text-[10px] font-bold uppercase tracking-wider hover:bg-[var(--gold)] transition-colors">In Dev</button>
+                                )}
+                                {col !== 'Done' && (
+                                  <button onClick={() => handleTaskStatusChange(t.id, 'Done')} className="px-3 py-1.5 bg-white border-2 border-black text-[10px] font-bold uppercase tracking-wider hover:bg-[var(--green)] hover:text-white transition-colors">Done</button>
+                                )}
+                              </div>
+                            )}
                           </div>
-                        ))}
+                          )
+                        })}
                       </div>
                     </div>
                   )
@@ -1084,7 +1155,7 @@ export default function WorkspaceHubPage() {
               </div>
 
               {/* Task Add Form */}
-              {selectedProject && (
+              {(currentUserRole === 'Owner' || currentUserRole === 'Admin') && selectedProject && (
                 <form onSubmit={handleCreateTask} className="p-8 bg-[var(--paper-lift)] border-2 border-black shadow-[8px_8px_0_#1a1a1a] flex flex-col lg:flex-row gap-6 items-end mt-4">
                   <div className="flex-grow flex flex-col gap-2 w-full">
                     <span className="text-[10px] font-bold uppercase tracking-widest">Add Task to {selectedProject.name}</span>
@@ -1115,6 +1186,7 @@ export default function WorkspaceHubPage() {
                       className="w-full lg:w-48 px-4 py-3 bg-white border-2 border-black text-sm font-bold focus:outline-none cursor-pointer"
                     >
                       <option value="">Unassigned</option>
+                      <option value="all">All Members</option>
                       {workspaceMembers.map(m => (
                         <option key={m.user_id} value={m.user_id}>{m.full_name} ({m.role})</option>
                       ))}
@@ -1137,35 +1209,68 @@ export default function WorkspaceHubPage() {
               <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 border-b-4 border-black pb-4">
                 <h2 className="text-4xl font-space font-bold">Document Library</h2>
                 
-                {/* Upload Form */}
-                <form onSubmit={handleDocUpload} className="flex flex-wrap gap-4 items-center bg-white border-2 border-black p-4 shadow-[6px_6px_0_#1a1a1a]">
-                  <input
-                    type="text"
-                    required
-                    placeholder="Document title..."
-                    value={docTitle}
-                    onChange={(e) => setDocTitle(e.target.value)}
-                    className="px-4 py-2 bg-[var(--paper)] border-2 border-black text-sm font-bold focus:outline-none focus:bg-white"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Category (default: General)"
-                    value={docCategory}
-                    onChange={(e) => setDocCategory(e.target.value)}
-                    className="px-4 py-2 bg-[var(--paper)] border-2 border-black text-sm font-bold focus:outline-none focus:bg-white"
-                  />
-                  <input
-                    type="file"
-                    required
-                    onChange={(e) => setDocFile(e.target.files[0])}
-                    className="text-xs font-bold file:mr-4 file:py-2 file:px-4 file:border-2 file:border-black file:text-xs file:font-bold file:bg-[var(--gold)] file:text-black file:cursor-pointer file:shadow-[2px_2px_0_#1a1a1a] file:hover:translate-y-px file:hover:shadow-[1px_1px_0_#1a1a1a] file:transition-all"
-                  />
-                  <button
-                    type="submit"
-                    className="px-6 py-2 bg-black text-white border-2 border-black text-xs font-bold uppercase tracking-wider hover:-translate-y-0.5 hover:shadow-[4px_4px_0_var(--gold)] transition-all whitespace-nowrap"
-                  >
-                    Upload File
-                  </button>
+                {/* Upload Form (Visible to everyone) */}
+                <form onSubmit={handleDocUpload} className="flex flex-col gap-4 bg-white border-2 border-black p-4 shadow-[6px_6px_0_#1a1a1a]">
+                  <div className="flex flex-wrap gap-4 items-center">
+                    <input
+                      type="text"
+                      required
+                      placeholder="Document title..."
+                      value={docTitle}
+                      onChange={(e) => setDocTitle(e.target.value)}
+                      className="px-4 py-2 bg-[var(--paper)] border-2 border-black text-sm font-bold focus:outline-none focus:bg-white"
+                    />
+                    <input
+                      type="text"
+                      placeholder="Category (default: General)"
+                      value={docCategory}
+                      onChange={(e) => setDocCategory(e.target.value)}
+                      className="px-4 py-2 bg-[var(--paper)] border-2 border-black text-sm font-bold focus:outline-none focus:bg-white"
+                    />
+                    
+                    <select
+                      value={docIsPublic ? "public" : "restricted"}
+                      onChange={(e) => setDocIsPublic(e.target.value === "public")}
+                      className="px-4 py-2 bg-[var(--paper)] border-2 border-black text-sm font-bold focus:outline-none focus:bg-white cursor-pointer"
+                    >
+                      <option value="public">Visibility: Public</option>
+                      <option value="restricted">Visibility: Restricted</option>
+                    </select>
+
+                    <input
+                      type="file"
+                      required
+                      onChange={(e) => setDocFile(e.target.files[0])}
+                      className="text-xs font-bold file:mr-4 file:py-2 file:px-4 file:border-2 file:border-black file:text-xs file:font-bold file:bg-[var(--gold)] file:text-black file:cursor-pointer file:shadow-[2px_2px_0_#1a1a1a] file:hover:translate-y-px file:hover:shadow-[1px_1px_0_#1a1a1a] file:transition-all"
+                    />
+                    <button
+                      type="submit"
+                      className="px-6 py-2 bg-black text-white border-2 border-black text-xs font-bold uppercase tracking-wider hover:-translate-y-0.5 hover:shadow-[4px_4px_0_var(--gold)] transition-all whitespace-nowrap"
+                    >
+                      Upload File
+                    </button>
+                  </div>
+                  
+                  {/* Restricted Viewers Checklist */}
+                  {!docIsPublic && (
+                    <div className="flex flex-wrap gap-3 mt-2 pt-4 border-t-2 border-dashed border-black/20">
+                      <span className="text-[10px] font-bold uppercase tracking-wider self-center">Grant access to:</span>
+                      {workspaceMembers.filter(m => m.user_id !== currentUser?.id).map(m => (
+                        <label key={m.user_id} className="flex items-center gap-2 text-xs font-bold cursor-pointer">
+                          <input 
+                            type="checkbox" 
+                            checked={docViewerIds.includes(m.user_id)}
+                            onChange={(e) => {
+                              if (e.target.checked) setDocViewerIds([...docViewerIds, m.user_id])
+                              else setDocViewerIds(docViewerIds.filter(id => id !== m.user_id))
+                            }}
+                            className="w-4 h-4 accent-black border-2 border-black"
+                          />
+                          {m.full_name}
+                        </label>
+                      ))}
+                    </div>
+                  )}
                 </form>
               </div>
 
@@ -1176,16 +1281,71 @@ export default function WorkspaceHubPage() {
                   <h3 className="font-bold text-lg font-space uppercase tracking-widest border-b-2 border-black pb-2">Stored Documents</h3>
                   <div className="flex flex-col gap-4">
                     {documents.map((doc) => (
-                      <div
-                        key={doc.id}
-                        onClick={() => viewDocVersions(doc)}
-                        className="p-5 bg-white border-2 border-black shadow-[4px_4px_0_rgba(0,0,0,1)] flex justify-between items-center cursor-pointer hover:-translate-y-1 hover:shadow-[6px_6px_0_rgba(0,0,0,1)] transition-transform"
-                      >
-                        <div>
-                          <h4 className="font-bold text-sm uppercase tracking-wider">{doc.title}</h4>
-                          <span className="text-[10px] font-bold tracking-widest border-2 border-black bg-[var(--paper)] px-2 py-0.5 uppercase mt-2 inline-block">Category: {doc.category}</span>
+                      <div key={doc.id} className="flex flex-col border-2 border-black bg-white shadow-[4px_4px_0_rgba(0,0,0,1)] hover:-translate-y-1 hover:shadow-[6px_6px_0_rgba(0,0,0,1)] transition-transform">
+                        <div
+                          onClick={() => viewDocVersions(doc)}
+                          className="p-5 flex justify-between items-center cursor-pointer"
+                        >
+                          <div>
+                            <h4 className="font-bold text-sm uppercase tracking-wider flex items-center gap-2">
+                              {!doc.is_public && <span title="Restricted Document">🔒</span>}
+                              {doc.title}
+                            </h4>
+                            <span className="text-[10px] font-bold tracking-widest border-2 border-black bg-[var(--paper)] px-2 py-0.5 uppercase mt-2 inline-block">Category: {doc.category}</span>
+                          </div>
+                          <span className="text-xs text-black font-black bg-[var(--gold)] border-2 border-black px-3 py-1 shadow-[2px_2px_0_#1a1a1a]">Ver. {doc.current_version} &rarr;</span>
                         </div>
-                        <span className="text-xs text-black font-black bg-[var(--gold)] border-2 border-black px-3 py-1 shadow-[2px_2px_0_#1a1a1a]">Ver. {doc.current_version} &rarr;</span>
+                        
+                        {(currentUserRole === 'Owner' || currentUserRole === 'Admin' || currentUser?.id === doc.creator_id) && (
+                          <div className="border-t-2 border-black p-3 bg-[var(--paper-lift)] flex flex-col gap-3">
+                            {editingAccessDocId === doc.id ? (
+                              <div className="flex flex-col gap-3">
+                                <div className="flex justify-between items-center">
+                                  <span className="text-xs font-bold uppercase">Edit Access</span>
+                                  <button onClick={() => setEditingAccessDocId(null)} className="text-[10px] font-bold underline">Cancel</button>
+                                </div>
+                                <select
+                                  value={editDocIsPublic ? "public" : "restricted"}
+                                  onChange={(e) => setEditDocIsPublic(e.target.value === "public")}
+                                  className="px-2 py-1 bg-white border-2 border-black text-xs font-bold"
+                                >
+                                  <option value="public">Public</option>
+                                  <option value="restricted">Restricted</option>
+                                </select>
+                                {!editDocIsPublic && (
+                                  <div className="flex flex-wrap gap-2 mt-1">
+                                    {workspaceMembers.filter(m => m.user_id !== currentUser?.id).map(m => (
+                                      <label key={m.user_id} className="flex items-center gap-1 text-[10px] font-bold cursor-pointer">
+                                        <input 
+                                          type="checkbox" 
+                                          checked={editDocViewerIds.includes(m.user_id)}
+                                          onChange={(e) => {
+                                            if (e.target.checked) setEditDocViewerIds([...editDocViewerIds, m.user_id])
+                                            else setEditDocViewerIds(editDocViewerIds.filter(id => id !== m.user_id))
+                                          }}
+                                          className="w-3 h-3 accent-black"
+                                        />
+                                        {m.full_name}
+                                      </label>
+                                    ))}
+                                  </div>
+                                )}
+                                <button onClick={() => handleUpdateAccess(doc.id)} className="self-start px-4 py-1 bg-black text-white text-[10px] font-bold uppercase tracking-wider">Save Changes</button>
+                              </div>
+                            ) : (
+                              <button 
+                                onClick={() => {
+                                  setEditingAccessDocId(doc.id)
+                                  setEditDocIsPublic(doc.is_public)
+                                  setEditDocViewerIds(doc.viewer_ids || [])
+                                }}
+                                className="text-[10px] font-bold uppercase tracking-wider underline self-start opacity-70 hover:opacity-100"
+                              >
+                                Edit Access
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -1208,14 +1368,23 @@ export default function WorkspaceHubPage() {
                             {ver.changelog && <div className="text-xs font-medium mt-2 bg-[var(--paper-lift)] border-l-4 border-black pl-2 py-1">Changelog: {ver.changelog}</div>}
                           </div>
                           
-                          {/* Direct download */}
-                          <a
-                            href={api.documents.getDownloadUrl(workspace_id, ver.document_id, ver.version_number)}
-                            className="px-4 py-2 bg-black text-white border-2 border-black text-[10px] font-bold uppercase tracking-wider hover:-translate-y-0.5 hover:shadow-[4px_4px_0_var(--gold)] transition-all whitespace-nowrap"
-                            download
-                          >
-                            Download
-                          </a>
+                          <div className="flex gap-2">
+                            <a
+                              href={api.documents.getViewUrl(workspace_id, ver.document_id, ver.version_number)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="px-4 py-2 bg-white text-black border-2 border-black text-[10px] font-bold uppercase tracking-wider hover:-translate-y-0.5 hover:shadow-[4px_4px_0_var(--gold)] transition-all whitespace-nowrap"
+                            >
+                              View
+                            </a>
+                            <a
+                              href={api.documents.getDownloadUrl(workspace_id, ver.document_id, ver.version_number)}
+                              className="px-4 py-2 bg-black text-white border-2 border-black text-[10px] font-bold uppercase tracking-wider hover:-translate-y-0.5 hover:shadow-[4px_4px_0_var(--gold)] transition-all whitespace-nowrap"
+                              download
+                            >
+                              Download
+                            </a>
+                          </div>
                         </div>
                       ))}
                     </div>

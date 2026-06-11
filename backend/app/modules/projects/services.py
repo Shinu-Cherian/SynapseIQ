@@ -4,6 +4,8 @@ from fastapi import HTTPException, status
 from app.modules.projects.models import Project, ProjectMember, ProjectTask
 from app.modules.projects.schemas import ProjectCreate, ProjectMemberAssign, TaskCreate, TaskUpdate
 from app.modules.workspace.models import WorkspaceMember
+from app.modules.notifications.services import create_notification
+from app.modules.auth.models import User
 
 def create_project(db: Session, workspace_id: str, project_in: ProjectCreate) -> Project:
     """
@@ -81,7 +83,8 @@ def create_project_task(
     db: Session, 
     workspace_id: str,
     project_id: int, 
-    task_in: TaskCreate
+    task_in: TaskCreate,
+    current_user_id: int = None
 ) -> ProjectTask:
     """
     Creates a task inside a project.
@@ -117,6 +120,20 @@ def create_project_task(
     db.add(db_task)
     db.commit()
     db.refresh(db_task)
+    
+    # 4. Trigger Notification if assigned
+    if task_in.assignee_id and current_user_id:
+        assigner = db.query(User).filter(User.id == current_user_id).first()
+        assigner_name = assigner.full_name if assigner else "Team Head"
+        create_notification(
+            db,
+            workspace_id=workspace_id,
+            user_id=task_in.assignee_id,
+            title=f"New Task Assigned: {task_in.title}",
+            content=f"{assigner_name} assigned you a new task in '{project.name}'.",
+            notification_type="general"
+        )
+
     return db_task
 
 def get_project_tasks(db: Session, workspace_id: str, project_id: int) -> List[ProjectTask]:
