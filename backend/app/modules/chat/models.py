@@ -26,7 +26,12 @@ class Message(Base):
     id = Column(Integer, primary_key=True, index=True)
     channel_id = Column(Integer, ForeignKey("channels.id", ondelete="CASCADE"), nullable=False)
     sender_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    content = Column(Text, nullable=False)
+    content = Column(Text, nullable=True)
+    
+    # File Attachment Support:
+    file_url = Column(String, nullable=True)
+    file_name = Column(String, nullable=True)
+    file_type = Column(String, nullable=True)
     
     # Threaded Discussions Support:
     # A message can have a parent message (the message being replied to).
@@ -40,4 +45,12 @@ class Message(Base):
     # Self-referential relationship for threaded replies
     parent = relationship("Message", remote_side=[id], back_populates="replies")
     replies = relationship("Message", back_populates="parent", cascade="all, delete-orphan")
+
+class ChannelReadState(Base):
+    __tablename__ = "channel_read_states"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    channel_id = Column(Integer, ForeignKey("channels.id", ondelete="CASCADE"), nullable=False)
+    last_read_message_id = Column(Integer, nullable=True)
 

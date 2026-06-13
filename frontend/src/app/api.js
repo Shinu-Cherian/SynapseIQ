@@ -112,6 +112,12 @@ export const api = {
         headers: getHeaders()
       }).then(handleResponse),
       
+    search: (workspaceId, query) =>
+      fetch(`${BASE_URL}/workspaces/${workspaceId}/search?q=${encodeURIComponent(query)}`, {
+        method: 'GET',
+        headers: getHeaders()
+      }).then(handleResponse),
+      
     deleteInvitation: (workspaceId, invitationId) =>
       fetch(`${BASE_URL}/workspaces/${workspaceId}/invitations/${invitationId}`, {
         method: 'DELETE',
@@ -199,8 +205,41 @@ export const api = {
         headers: getHeaders()
       }).then(handleResponse),
       
-    getWsUrl: (workspaceId, channelId, token) => {
-      return `ws://localhost:8000/api/v1/workspaces/${workspaceId}/channels/${channelId}/ws?token=${token}`
+    editMessage: (workspaceId, channelId, messageId, content) =>
+      fetch(`${BASE_URL}/workspaces/${workspaceId}/channels/${channelId}/messages/${messageId}`, {
+        method: 'PUT',
+        headers: getHeaders(),
+        body: JSON.stringify({ content })
+      }).then(handleResponse),
+      
+    deleteMessage: (workspaceId, channelId, messageId) =>
+      fetch(`${BASE_URL}/workspaces/${workspaceId}/channels/${channelId}/messages/${messageId}`, {
+        method: 'DELETE',
+        headers: getHeaders()
+      }).then(res => {
+        if (!res.ok) throw new Error('Delete failed')
+        return res
+      }),
+      
+    getWsUrl: (workspaceId, token) => {
+      return `ws://localhost:8000/api/v1/workspaces/${workspaceId}/channels/ws?token=${token}`
+    },
+    
+    markRead: (workspaceId, channelId) =>
+      fetch(`${BASE_URL}/workspaces/${workspaceId}/channels/${channelId}/read`, {
+        method: 'POST',
+        headers: getHeaders()
+      }).then(handleResponse),
+    
+    uploadFile: (workspaceId, channelId, formData) => {
+      const token = localStorage.getItem('access_token')
+      return fetch(`${BASE_URL}/workspaces/${workspaceId}/channels/${channelId}/messages/files`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        body: formData
+      }).then(handleResponse)
     }
   },
 

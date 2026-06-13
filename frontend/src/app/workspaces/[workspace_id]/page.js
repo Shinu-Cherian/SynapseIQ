@@ -30,9 +30,8 @@ export default function WorkspaceHubPage() {
   const [selectedChannel, setSelectedChannel] = useState(null)
   const [messages, setMessages] = useState([])
   const [chatInput, setChatInput] = useState('')
-  const [threadParent, setThreadParent] = useState(null)
-  const [threadReplies, setThreadReplies] = useState([])
-  const [threadInput, setThreadInput] = useState('')
+  const [chatAttachment, setChatAttachment] = useState(null)
+  const [replyingTo, setReplyingTo] = useState(null)
   const [newChanName, setNewChanName] = useState('')
   const [newChanDesc, setNewChanDesc] = useState('')
   const socketRef = useRef(null)
@@ -109,9 +108,9 @@ export default function WorkspaceHubPage() {
         const h = Math.floor(diff / (1000 * 60 * 60));
         const m = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
         const s = Math.floor((diff % (1000 * 60)) / 1000);
-        setMeetingCountdown(`Starts in ${h}h ${m}m ${s}s`);
+        setMeetingCountdown({ text: `Starts in ${h}h ${m}m ${s}s`, meeting: closest });
       } else {
-        setMeetingCountdown("Meeting time arrived");
+        setMeetingCountdown({ text: "Meeting time arrived", meeting: closest });
       }
     };
     updateCountdown();
@@ -124,10 +123,159 @@ export default function WorkspaceHubPage() {
   const [aiAnswer, setAiAnswer] = useState('')
   const [aiQueryLoading, setAiQueryLoading] = useState(false)
 
+  // 7. Presence and Typing State
+  const [onlineUsers, setOnlineUsers] = useState(new Set())
+  const [typingUsers, setTypingUsers] = useState({}) // channel_id -> { user_id: timestamp }
+
+  // 8. Message Edit State
+  const [editingMessageId, setEditingMessageId] = useState(null)
+  const [editMessageContent, setEditMessageContent] = useState('')
+
+  // 9. Global Search State
+  const [isSearchOpen, setIsSearchOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState({ messages: [], tasks: [], users: [] })
+  const [searchLoading, setSearchLoading] = useState(false)
+
   // Load User, Workspace memberships and Notifications on mount
+  const selectedChannelRef = useRef(selectedChannel)
+  
+  useEffect(() => {
+    selectedChannelRef.current = selectedChannel
+  }, [selectedChannel])
+
   useEffect(() => {
     // eslint-disable-next-line react-hooks/immutability
     initWorkspace()
+  }, [workspace_id])
+
+  // Global Search Effect
+  useEffect(() => {
+    const handler = setTimeout(async () => {
+      if (!searchQuery || searchQuery.trim().length < 2) {
+        setSearchResults({ messages: [], tasks: [], users: [] })
+        return
+      }
+      setSearchLoading(true)
+      try {
+        const results = await api.workspaces.search(workspace_id, searchQuery)
+        setSearchResults(results)
+      } catch (err) {
+        console.error("Search failed", err)
+      } finally {
+        setSearchLoading(false)
+      }
+    }, 300)
+    return () => clearTimeout(handler)
+  }, [searchQuery, workspace_id])
+
+  // Clear stale typing indicators every second
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setTypingUsers(prev => {
+        const now = Date.now()
+        let updated = { ...prev }
+        let changed = false
+        
+        for (const [chanId, users] of Object.entries(prev)) {
+          for (const [uid, timestamp] of Object.entries(users)) {
+            if (now - timestamp > 3000) {
+              const newUsers = { ...updated[chanId] }
+              delete newUsers[uid]
+              updated[chanId] = newUsers
+              changed = true
+            }
+          }
+        }
+        return changed ? updated : prev
+      })
+    }, 1000)
+    return () => clearInterval(interval)
+  }, [])
+
+  // Global Workspace WebSocket
+  useEffect(() => {
+    if (!workspace_id) return
+    const token = localStorage.getItem('access_token')
+    if (!token) return
+
+    const wsUrl = api.chat.getWsUrl(workspace_id, token)
+    const socket = new WebSocket(wsUrl)
+    
+    socket.onmessage = (event) => {
+      const data = JSON.parse(event.data)
+      
+      if (data.type === "PRESENCE_SYNC") {
+        setOnlineUsers(new Set(data.online_users))
+        return
+      }
+      
+      if (data.type === "USER_ONLINE") {
+        setOnlineUsers(prev => {
+          const next = new Set(prev)
+          next.add(data.user_id)
+          return next
+        })
+        return
+      }
+      
+      if (data.type === "USER_OFFLINE") {
+        setOnlineUsers(prev => {
+          const next = new Set(prev)
+          next.delete(data.user_id)
+          return next
+        })
+        return
+      }
+
+      if (data.type === "USER_TYPING") {
+        setTypingUsers(prev => ({
+          ...prev,
+          [data.channel_id]: {
+            ...prev[data.channel_id],
+            [data.user_id]: Date.now()
+          }
+        }))
+        return
+      }
+
+      if (data.type === "MESSAGE_EDITED") {
+        const currentChannel = selectedChannelRef.current
+        if (currentChannel && currentChannel.id === data.channel_id) {
+          setMessages(prev => prev.map(m => m.id === data.message_id ? { ...m, content: data.content } : m))
+        }
+        return
+      }
+
+      if (data.type === "MESSAGE_DELETED") {
+        const currentChannel = selectedChannelRef.current
+        if (currentChannel && currentChannel.id === data.channel_id) {
+          setMessages(prev => prev.filter(m => m.id !== data.message_id))
+        }
+        return
+      }
+
+      // Standard Chat Message
+      const newMsg = data
+      const currentChannel = selectedChannelRef.current
+      
+      if (currentChannel && currentChannel.id === newMsg.channel_id) {
+        setMessages(prev => [...prev, newMsg])
+        api.chat.markRead(workspace_id, currentChannel.id).catch(console.error)
+      } else {
+        setChannels(prev => prev.map(c => 
+          c.id === newMsg.channel_id ? { ...c, unread_count: (c.unread_count || 0) + 1 } : c
+        ))
+      }
+      
+      fetchNotifications()
+    }
+    
+    socketRef.current = socket
+    
+    return () => {
+      socket.close()
+    }
   }, [workspace_id])
 
   const initWorkspace = async () => {
@@ -241,11 +389,12 @@ export default function WorkspaceHubPage() {
   // 2. Chat Loading & WebSocket
   const loadChatTab = async () => {
     try {
-      // Logic simplified to use Group Chat
-      if (!selectedChannel) {
-        // Assume default "General" channel exists or fetch logic
-        const chan = { id: 'general', name: 'Group Chat' }
-        handleSelectChannel(chan)
+      const chans = await api.chat.channels(workspace_id)
+      setChannels(chans)
+      
+      if (!selectedChannel && chans.length > 0) {
+        const defaultChan = chans.find(c => !c.is_dm && !c.is_private) || chans[0]
+        handleSelectChannel(defaultChan)
       }
     } catch (err) {
       console.error('Error loading channels:', err)
@@ -254,11 +403,14 @@ export default function WorkspaceHubPage() {
 
   const handleSelectChannel = async (channel) => {
     setSelectedChannel(channel)
-    setThreadParent(null)
+    setReplyingTo(null)
     
-    // Close existing WebSocket if open
-    if (socketRef.current) {
-      socketRef.current.close()
+    // Mark as read immediately when opening
+    try {
+      await api.chat.markRead(workspace_id, channel.id)
+      setChannels(prev => prev.map(c => c.id === channel.id ? { ...c, unread_count: 0 } : c))
+    } catch (err) {
+      console.error('Failed to mark channel read', err)
     }
     
     // Fetch message history
@@ -268,56 +420,57 @@ export default function WorkspaceHubPage() {
     } catch (err) {
       console.error(err)
     }
+  }
+
+  const handleSendChat = async () => {
+    if ((!chatInput.trim() && !chatAttachment) || !socketRef.current) return
     
-    // Connect WebSocket
-    const token = localStorage.getItem('access_token')
-    const wsUrl = api.chat.getWsUrl(workspace_id, channel.id, token)
-    
-    const socket = new WebSocket(wsUrl)
-    socket.onmessage = (event) => {
-      const newMsg = JSON.parse(event.data)
-      // Check if message belongs to active thread or main feed
-      if (newMsg.parent_id) {
-        if (threadParent && threadParent.id === newMsg.parent_id) {
-          setThreadReplies(prev => [...prev, newMsg])
-        }
-      } else {
-        setMessages(prev => [...prev, newMsg])
-      }
+    if (chatAttachment) {
+      const formData = new FormData()
+      if (chatInput.trim()) formData.append('content', chatInput)
+      formData.append('file', chatAttachment)
+      if (replyingTo) formData.append('parent_id', replyingTo.id)
       
-      // Auto-reload notifications feed if current user might have been tagged
-      fetchNotifications()
+      try {
+        await api.chat.uploadFile(workspace_id, selectedChannel.id, formData)
+      } catch (err) {
+        console.error('File upload failed', err)
+      }
+    } else {
+      const payload = {
+        content: chatInput,
+        parent_id: replyingTo ? replyingTo.id : null,
+        channel_id: selectedChannel.id
+      }
+      socketRef.current.send(JSON.stringify(payload))
     }
-    socketRef.current = socket
-  }
-
-  const handleSendChat = () => {
-    if (!chatInput.trim() || !socketRef.current) return
-    const payload = {
-      content: chatInput,
-      parent_id: null
-    }
-    socketRef.current.send(JSON.stringify(payload))
     setChatInput('')
+    setChatAttachment(null)
+    setReplyingTo(null)
   }
 
-  const handleSendReply = () => {
-    if (!threadInput.trim() || !socketRef.current || !threadParent) return
-    const payload = {
-      content: threadInput,
-      parent_id: threadParent.id
-    }
-    socketRef.current.send(JSON.stringify(payload))
-    setThreadInput('')
-  }
-
-  const openThread = async (msg) => {
-    setThreadParent(msg)
+  const handleDeleteMessage = async (msgId) => {
+    if (!confirm("Are you sure you want to delete this message?")) return;
     try {
-      const threadData = await api.chat.thread(workspace_id, selectedChannel.id, msg.id)
-      setThreadReplies(threadData.replies)
+      await api.chat.deleteMessage(workspace_id, selectedChannel.id, msgId);
+      // Wait for WS broadcast to actually remove it, or optimistically remove it:
+      setMessages(prev => prev.filter(m => m.id !== msgId));
     } catch (err) {
-      console.error(err)
+      console.error(err);
+      alert(err.message || "Failed to delete message");
+    }
+  }
+
+  const handleEditMessageSave = async () => {
+    if (!editMessageContent.trim()) return;
+    try {
+      const updated = await api.chat.editMessage(workspace_id, selectedChannel.id, editingMessageId, editMessageContent);
+      setMessages(prev => prev.map(m => m.id === editingMessageId ? { ...m, content: updated.content } : m));
+      setEditingMessageId(null);
+      setEditMessageContent('');
+    } catch (err) {
+      console.error(err);
+      alert(err.message || "Failed to edit message");
     }
   }
 
@@ -667,22 +820,40 @@ export default function WorkspaceHubPage() {
 
         <div className="flex items-center gap-8">
           {meetingCountdown && (
-            <div className="text-xs font-bold bg-yellow-400 text-black px-3 py-1 border-2 border-black shadow-[2px_2px_0_#1a1a1a] flex items-center gap-2">
+            <div className="relative group cursor-help text-xs font-bold bg-yellow-400 text-black px-3 py-1 border-2 border-black shadow-[2px_2px_0_#1a1a1a] flex items-center gap-2">
               <span className="w-1.5 h-1.5 rounded-full bg-black animate-pulse"></span>
-              {meetingCountdown}
+              {meetingCountdown.text}
+              
+              <div className="absolute top-full mt-2 right-0 hidden group-hover:block w-[280px] bg-white border-2 border-black text-black p-3 z-50 shadow-[4px_4px_0_#1a1a1a] whitespace-normal pointer-events-none">
+                 <p className="font-semibold text-[11px] mb-1">Team head has organised a meeting:</p>
+                 <span className="font-extrabold text-[var(--gold)] bg-black px-1 mt-1 inline-block">{meetingCountdown.meeting.title}</span><br/>
+                 <span className="font-bold text-[10px] uppercase block mt-1">{parseMeetingDate(meetingCountdown.meeting.scheduled_at).toLocaleString()}</span>
+                 <hr className="border-black my-2" />
+                 <span className="font-semibold text-[11px]">{meetingCountdown.text.includes('Starts in') ? `It will start in ${meetingCountdown.text.replace('Starts in ', '')}` : meetingCountdown.text}</span>
+              </div>
             </div>
           )}
-          {/* Notifications Indicator */}
-          <div className="relative cursor-pointer hover:-translate-y-0.5 transition-transform" onClick={() => handleTabChange('notifications')}>
-            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="black" stroke="black" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-black">
-              <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
-              <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
-            </svg>
-            {bellCount > 0 && (
-              <span className="absolute -top-2 -right-2 bg-black text-white text-[10px] font-bold w-5 h-5 flex items-center justify-center border border-black shadow-[2px_2px_0_#1a1a1a]">
-                {bellCount}
-              </span>
-            )}
+          <div className="flex gap-4">
+            {/* Global Search Indicator */}
+            <div className="relative cursor-pointer hover:-translate-y-0.5 transition-transform" onClick={() => setIsSearchOpen(true)}>
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="black" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="11" cy="11" r="8"></circle>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+              </svg>
+            </div>
+            
+            {/* Notifications Indicator */}
+            <div className="relative cursor-pointer hover:-translate-y-0.5 transition-transform" onClick={() => handleTabChange('notifications')}>
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="black" stroke="black" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-black">
+                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+                <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+              </svg>
+              {bellCount > 0 && (
+                <span className="absolute -top-2 -right-2 bg-black text-white text-[10px] font-bold w-5 h-5 flex items-center justify-center border border-black shadow-[2px_2px_0_#1a1a1a]">
+                  {bellCount}
+                </span>
+              )}
+            </div>
           </div>
 
           <div className="text-right border-l-2 border-black pl-6">
@@ -876,9 +1047,17 @@ export default function WorkspaceHubPage() {
                     <div className="flex flex-col gap-2">
                       {workspaceMembers.map(member => (
                         <div key={member.id} className="flex justify-between items-center p-4 bg-white border-2 border-black shadow-[4px_4px_0_#1a1a1a]">
-                          <div>
-                            <p className="font-bold">{member.full_name}</p>
-                            <p className="text-xs uppercase tracking-wider text-green-600 font-bold">Active • {member.role}</p>
+                          <div className="flex flex-col gap-0.5">
+                            <p className="font-bold text-sm flex items-center">
+                              {member.full_name} 
+                              {onlineUsers.has(member.user_id) ? (
+                                <span className="ml-2 inline-block w-2 h-2 rounded-full bg-green-500 shadow-[0_0_0_1px_#000]" title="Online"></span>
+                              ) : (
+                                <span className="ml-2 inline-block w-2 h-2 rounded-full bg-gray-300 shadow-[0_0_0_1px_#000]" title="Offline"></span>
+                              )}
+                            </p>
+                            <p className="font-medium text-black/60 text-xs">{member.email}</p>
+                            <p className="text-[10px] uppercase tracking-wider text-green-600 font-bold mt-1">Active • {member.role}</p>
                           </div>
                           {member.user_id !== currentUser?.id && (currentUserRole === 'Owner' || currentUserRole === 'Admin') && (
                             <button 
@@ -1004,96 +1183,174 @@ export default function WorkspaceHubPage() {
                 </div>
 
                 {/* Messages Feed */}
-                <div className="flex-grow p-6 overflow-y-auto flex flex-col gap-5 bg-[var(--paper)]">
-                  {messages.map((msg) => (
-                    <div key={msg.id} className="flex flex-col items-start bg-white p-4 border-2 border-black shadow-[3px_3px_0_rgba(0,0,0,0.1)] max-w-[85%]">
-                      <div className="flex justify-between items-center w-full text-[10px] font-bold uppercase tracking-wider mb-2 border-b-2 border-black/10 pb-1">
-                        <span>User #{msg.sender_id}</span>
-                        <span>{new Date(msg.created_at).toLocaleTimeString()}</span>
-                      </div>
-                      <p className="text-sm font-medium leading-relaxed">{msg.content}</p>
-                      
-                      {/* Thread trigger */}
-                      <button
-                        onClick={() => openThread(msg)}
-                        className="text-[10px] font-bold text-black border-2 border-black bg-[var(--gold)] px-2 py-1 uppercase tracking-wider mt-3 hover:-translate-y-0.5 hover:shadow-[2px_2px_0_#1a1a1a] transition-transform"
+                <div className="flex-grow p-6 overflow-y-auto flex flex-col gap-6 bg-[var(--paper)]">
+                  {messages.map((msg) => {
+                    const isMe = currentUser && msg.sender_id === currentUser.id;
+                    const senderName = isMe ? "You" : (workspaceMembers.find(m => m.user_id === msg.sender_id)?.full_name || `User #${msg.sender_id}`);
+                    const msgDate = new Date(msg.created_at + (msg.created_at.endsWith('Z') ? '' : 'Z'));
+                    
+                    return (
+                      <div 
+                        key={msg.id} 
+                        className={`flex flex-col relative group max-w-[85%] ${
+                          isMe ? 'self-end items-end' : 'self-start items-start'
+                        }`}
                       >
-                        Reply in thread &rarr;
-                      </button>
+                        <div 
+                          className={`flex flex-col p-4 border-2 border-black shadow-[4px_4px_0_#1a1a1a] ${
+                            isMe ? 'bg-white' : 'bg-white'
+                          }`}
+                        >
+                          <div className="flex justify-between items-center w-full text-[10px] font-bold uppercase tracking-wider mb-2 border-b-2 border-black/10 pb-2 gap-6">
+                            <span className={isMe ? "text-[var(--primary)]" : "text-[var(--danger)]"}>{senderName}</span>
+                            <span className="font-mono">{msgDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                          </div>
+                          
+                          {/* Inline Reply Preview */}
+                          {msg.parent_id && (
+                            <div className="mb-3 p-2 bg-[var(--paper-lift)] border-l-4 border-[var(--gold)] text-xs border border-black/20 cursor-pointer hover:bg-[var(--gold)]/20 transition-colors">
+                              <div className="font-bold uppercase tracking-wider text-[10px] mb-1 text-black/60">
+                                Replying to {messages.find(m => m.id === msg.parent_id)?.sender_id === currentUser?.id ? "You" : "Message"}
+                              </div>
+                              <div className="truncate max-w-[250px] font-medium opacity-80">
+                                {messages.find(m => m.id === msg.parent_id)?.content || "Attachment"}
+                              </div>
+                            </div>
+                          )}
+
+                          {msg.file_url && (
+                            <div className={`mb-3 mt-1 ${isMe ? 'self-end' : 'self-start'}`}>
+                              {msg.file_type?.startsWith('image/') ? (
+                                <img src={`http://localhost:8000${msg.file_url}`} alt={msg.file_name} className="max-w-xs max-h-64 object-cover border-2 border-black" />
+                              ) : (
+                                <a href={`http://localhost:8000${msg.file_url}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-xs font-bold hover:bg-black hover:text-white border-2 border-black bg-[var(--paper)] px-3 py-2 transition-colors">
+                                  📎 {msg.file_name}
+                                </a>
+                              )}
+                            </div>
+                          )}
+
+                          {editingMessageId === msg.id ? (
+                            <div className="mt-2 w-full flex flex-col gap-2">
+                              <input 
+                                type="text"
+                                value={editMessageContent}
+                                onChange={e => setEditMessageContent(e.target.value)}
+                                className="w-full px-2 py-1 text-sm border-2 border-black focus:outline-none bg-[var(--paper-lift)] text-black"
+                                autoFocus
+                              />
+                              <div className="flex gap-2 justify-end">
+                                <button onClick={() => { setEditingMessageId(null); setEditMessageContent(''); }} className="text-[10px] font-bold uppercase hover:underline">Cancel</button>
+                                <button onClick={handleEditMessageSave} className="text-[10px] font-bold uppercase text-[var(--primary)] hover:underline">Save</button>
+                              </div>
+                            </div>
+                          ) : (
+                            <p className={`text-sm font-medium leading-relaxed whitespace-pre-wrap break-words ${isMe ? 'text-right' : 'text-left'}`}>
+                              {msg.content}
+                            </p>
+                          )}
+                        </div>
+
+                        {/* Hover Actions: Reply, Edit, Delete */}
+                        <div className={`absolute top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col gap-1 ${isMe ? '-left-20' : '-right-20'}`}>
+                          <button
+                            onClick={() => setReplyingTo(msg)}
+                            className="px-2 py-1 bg-[var(--gold)] border-2 border-black shadow-[2px_2px_0_#1a1a1a] text-[10px] font-bold uppercase tracking-wider hover:-translate-y-0.5 hover:shadow-[3px_3px_0_#1a1a1a]"
+                            title="Reply"
+                          >
+                            Reply
+                          </button>
+                          
+                          {(isMe || currentUserRole === 'Owner' || currentUserRole === 'Admin') && (
+                            <button
+                              onClick={() => handleDeleteMessage(msg.id)}
+                              className="px-2 py-1 bg-[var(--danger)] text-white border-2 border-black shadow-[2px_2px_0_#1a1a1a] text-[10px] font-bold uppercase tracking-wider hover:-translate-y-0.5 hover:shadow-[3px_3px_0_#1a1a1a]"
+                              title="Delete"
+                            >
+                              Delete
+                            </button>
+                          )}
+
+                          {isMe && (
+                            <button
+                              onClick={() => {
+                                setEditingMessageId(msg.id);
+                                setEditMessageContent(msg.content);
+                              }}
+                              className="px-2 py-1 bg-[var(--paper)] border-2 border-black shadow-[2px_2px_0_#1a1a1a] text-[10px] font-bold uppercase tracking-wider hover:-translate-y-0.5 hover:shadow-[3px_3px_0_#1a1a1a]"
+                              title="Edit"
+                            >
+                              Edit
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                  
+                  {/* Typing Indicator */}
+                  {selectedChannel && typingUsers[selectedChannel.id] && Object.keys(typingUsers[selectedChannel.id]).length > 0 && (
+                    <div className="self-start text-[10px] font-bold uppercase tracking-widest text-[var(--gold)] bg-black px-3 py-1 animate-pulse border border-black shadow-[2px_2px_0_#1a1a1a]">
+                      {Object.keys(typingUsers[selectedChannel.id])
+                        .filter(uid => parseInt(uid) !== currentUser?.id)
+                        .map(uid => workspaceMembers.find(m => m.user_id === parseInt(uid))?.full_name || "Someone")
+                        .join(", ")} {Object.keys(typingUsers[selectedChannel.id]).filter(uid => parseInt(uid) !== currentUser?.id).length > 1 ? 'are' : 'is'} typing...
                     </div>
-                  ))}
+                  )}
                 </div>
 
                 {/* Chat Input */}
-                <div className="h-20 border-t-2 border-black px-6 flex items-center gap-4 bg-[var(--paper-lift)]">
-                  <input
-                    type="text"
-                    placeholder={`Message #${selectedChannel?.name || ''}...`}
-                    value={chatInput}
-                    onChange={(e) => setChatInput(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleSendChat()}
-                    className="flex-grow px-4 py-3 bg-white border-2 border-black text-sm focus:outline-none"
-                  />
-                  <button
-                    onClick={handleSendChat}
-                    className="px-6 py-3 bg-black text-white border-2 border-black text-sm font-bold uppercase tracking-wider hover:-translate-y-0.5 hover:shadow-[4px_4px_0_var(--gold)] transition-all"
-                  >
-                    Send
-                  </button>
-                </div>
-              </div>
-
-              {/* Right Panel: Chat Thread Drawer */}
-              {threadParent && (
-                <div className="w-1/3 bg-white border-2 border-black shadow-[6px_6px_0_#1a1a1a] p-5 flex flex-col justify-between overflow-hidden">
-                  <div>
-                    <div className="flex justify-between items-center border-b-2 border-black pb-3 mb-5">
-                      <h4 className="font-bold text-sm uppercase tracking-wider">Thread Replies</h4>
-                      <button onClick={() => setThreadParent(null)} className="text-black font-bold text-lg hover:text-[var(--danger)]">&times;</button>
+                <div className="border-t-2 border-black bg-[var(--paper-lift)] flex flex-col">
+                  {replyingTo && (
+                    <div className="px-6 py-2 border-b-2 border-[var(--gold)] flex justify-between items-center bg-[var(--paper)] text-xs font-bold">
+                      <span className="truncate">Replying to: {replyingTo.content || "Attachment"}</span>
+                      <button onClick={() => setReplyingTo(null)} className="text-[var(--danger)] hover:underline ml-4">Cancel</button>
                     </div>
-
-                    {/* Parent Message details */}
-                    <div className="p-4 bg-[var(--paper)] border-2 border-black mb-5 text-sm">
-                      <div className="text-[10px] font-bold uppercase tracking-wider mb-2 border-b-2 border-black/10 pb-1">PARENT MESSAGE:</div>
-                      <p className="font-medium">{threadParent.content}</p>
+                  )}
+                  {chatAttachment && (
+                    <div className="px-6 py-2 border-b-2 border-black/10 flex justify-between items-center bg-white text-xs font-bold">
+                      <span>📎 Attached: {chatAttachment.name}</span>
+                      <button onClick={() => setChatAttachment(null)} className="text-[var(--danger)] hover:underline">Remove</button>
                     </div>
-
-                    {/* Replies list */}
-                    <div className="flex flex-col gap-4 overflow-y-auto max-h-[350px] pr-2">
-                      {threadReplies.map((rep) => (
-                        <div key={rep.id} className="p-3 bg-white border-2 border-black text-sm font-medium leading-relaxed">
-                          <div className="flex justify-between text-[9px] font-bold uppercase tracking-wider mb-2 border-b-2 border-black/10 pb-1">
-                            <span>User #{rep.sender_id}</span>
-                            <span>{new Date(rep.created_at).toLocaleTimeString()}</span>
-                          </div>
-                          <p>{rep.content}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Thread reply input */}
-                  <div className="border-t-2 border-black pt-4 mt-4 flex flex-col gap-3">
+                  )}
+                  <div className="h-20 px-6 flex items-center gap-4">
+                    <label className="cursor-pointer px-4 py-3 bg-white border-2 border-black font-bold hover:-translate-y-0.5 hover:shadow-[2px_2px_0_#1a1a1a] transition-all flex items-center justify-center">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
+                      <input 
+                        type="file" 
+                        className="hidden" 
+                        onChange={(e) => setChatAttachment(e.target.files[0])}
+                      />
+                    </label>
                     <input
                       type="text"
-                      placeholder="Reply to thread..."
-                      value={threadInput}
-                      onChange={(e) => setThreadInput(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && handleSendReply()}
-                      className="w-full px-4 py-3 bg-[var(--paper)] border-2 border-black text-sm focus:outline-none focus:bg-white"
+                      placeholder="Message..."
+                      value={chatInput}
+                      onChange={(e) => {
+                        setChatInput(e.target.value)
+                        // Emit typing indicator
+                        if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN && selectedChannel) {
+                          socketRef.current.send(JSON.stringify({
+                            type: "USER_TYPING",
+                            channel_id: selectedChannel.id
+                          }))
+                        }
+                      }}
+                      onKeyDown={(e) => e.key === 'Enter' && handleSendChat()}
+                      className="flex-grow px-4 py-3 bg-white border-2 border-black text-sm focus:outline-none"
                     />
                     <button
-                      onClick={handleSendReply}
-                      className="w-full py-3 bg-[var(--gold)] text-black border-2 border-black text-xs font-bold uppercase tracking-wider hover:-translate-y-0.5 hover:shadow-[4px_4px_0_#1a1a1a] transition-all"
+                      onClick={handleSendChat}
+                      className="px-6 py-3 bg-black text-white border-2 border-black text-sm font-bold uppercase tracking-wider hover:-translate-y-0.5 hover:shadow-[4px_4px_0_var(--gold)] transition-all"
                     >
-                      Reply
+                      Send
                     </button>
                   </div>
                 </div>
-              )}
+              </div>
 
               {/* Right Panel: Members & Group Chat Navigation */}
-              {!threadParent && (
+              {(
                 <div className="w-1/4 bg-white border-2 border-black shadow-[6px_6px_0_#1a1a1a] p-5 flex flex-col overflow-y-auto">
                   <h3 className="text-xs font-bold uppercase tracking-widest border-b-2 border-black pb-2 mb-4">Group Chat</h3>
                   
@@ -1103,9 +1360,12 @@ export default function WorkspaceHubPage() {
                       <button
                         key={chan.id}
                         onClick={() => handleSelectChannel(chan)}
-                        className={`w-full py-3 px-4 border-2 border-black text-sm font-bold text-left transition-all ${selectedChannel?.id === chan.id ? 'bg-black text-white shadow-[2px_2px_0_var(--gold)] translate-x-1' : 'bg-[var(--paper-lift)] hover:-translate-y-0.5 hover:shadow-[2px_2px_0_#1a1a1a]'}`}
+                        className={`w-full py-3 px-4 border-2 border-black text-sm font-bold text-left transition-all flex items-center justify-between ${selectedChannel?.id === chan.id ? 'bg-black text-white shadow-[2px_2px_0_var(--gold)] translate-x-1' : 'bg-[var(--paper-lift)] hover:-translate-y-0.5 hover:shadow-[2px_2px_0_#1a1a1a]'}`}
                       >
-                        💬 Group Chat
+                        <span>💬 Group Chat</span>
+                        {chan.unread_count > 0 && (
+                          <span className="bg-[var(--danger)] text-white text-[10px] font-bold px-2 py-0.5 rounded-full border border-black shadow-[1px_1px_0_#000]">{chan.unread_count}</span>
+                        )}
                       </button>
                     ))}
                   </div>
@@ -1122,6 +1382,7 @@ export default function WorkspaceHubPage() {
                       
                       const isTeamHead = member.role === 'Owner';
                       const displayName = isTeamHead ? `@ ${member.full_name} (Team Head)` : `@ ${member.full_name}`;
+                      const unreadCount = dmChannel?.unread_count || 0;
 
                       return (
                         <button
@@ -1132,7 +1393,17 @@ export default function WorkspaceHubPage() {
                           }}
                           className={`w-full py-3 px-4 border-2 border-black text-sm font-bold text-left transition-all flex items-center justify-between ${selectedChannel?.id === dmChannel?.id ? 'bg-black text-white shadow-[2px_2px_0_var(--gold)] translate-x-1' : 'bg-white hover:-translate-y-0.5 hover:shadow-[2px_2px_0_#1a1a1a]'}`}
                         >
-                          <span className="truncate">{displayName}</span>
+                          <div className="flex items-center gap-2 truncate">
+                            {onlineUsers.has(member.user_id) ? (
+                              <span className="inline-block w-2 h-2 rounded-full bg-green-500 shadow-[0_0_0_1px_#000] flex-shrink-0" title="Online"></span>
+                            ) : (
+                              <span className="inline-block w-2 h-2 rounded-full bg-gray-400 shadow-[0_0_0_1px_#000] flex-shrink-0" title="Offline"></span>
+                            )}
+                            <span className="truncate">{displayName}</span>
+                            {unreadCount > 0 && (
+                              <span className="bg-[var(--danger)] text-white text-[10px] font-bold px-2 py-0.5 rounded-full border border-black shadow-[1px_1px_0_#000] flex-shrink-0">{unreadCount}</span>
+                            )}
+                          </div>
                           <span className="text-[10px] font-mono px-2 py-1 bg-[var(--paper)] text-black border border-black flex-shrink-0">{member.role}</span>
                         </button>
                       )
@@ -1843,6 +2114,113 @@ export default function WorkspaceHubPage() {
               >
                 Confirm Delete
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Global Search Modal */}
+      {isSearchOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
+          <div className="bg-[var(--paper)] border-4 border-black shadow-[16px_16px_0_#1a1a1a] max-w-4xl w-full flex flex-col max-h-[85vh]">
+            <div className="p-6 border-b-4 border-black flex justify-between items-center bg-[var(--gold)]">
+              <h2 className="text-2xl font-space font-bold uppercase tracking-widest text-black">Global Search</h2>
+              <button onClick={() => setIsSearchOpen(false)} className="w-10 h-10 bg-white border-2 border-black flex items-center justify-center hover:-translate-y-0.5 hover:shadow-[4px_4px_0_#1a1a1a] transition-all font-bold">
+                ✕
+              </button>
+            </div>
+            
+            <div className="p-6 border-b-4 border-black bg-white">
+              <div className="relative">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="absolute left-4 top-1/2 -translate-y-1/2 text-black/50">
+                  <circle cx="11" cy="11" r="8"></circle>
+                  <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                </svg>
+                <input
+                  type="text"
+                  placeholder="Search messages, tasks, and users..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-14 pr-6 py-4 bg-white border-4 border-black text-lg font-bold placeholder-black/30 focus:outline-none focus:ring-4 focus:ring-[var(--gold)]/50 transition-all shadow-[4px_4px_0_#1a1a1a]"
+                  autoFocus
+                />
+              </div>
+            </div>
+
+            <div className="flex-grow overflow-y-auto p-6 flex flex-col gap-8 bg-[var(--paper-lift)]">
+              {searchLoading ? (
+                <div className="text-center py-12 font-bold uppercase tracking-widest text-black/50 animate-pulse">
+                  Searching the matrix...
+                </div>
+              ) : searchQuery.trim().length < 2 ? (
+                <div className="text-center py-12 font-bold uppercase tracking-widest text-black/50">
+                  Type at least 2 characters to search
+                </div>
+              ) : (
+                <>
+                  {/* Users Results */}
+                  {searchResults.users?.length > 0 && (
+                    <div className="flex flex-col gap-4">
+                      <h3 className="text-lg font-space font-bold uppercase tracking-widest border-b-4 border-black pb-2 inline-block self-start">Team Members</h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {searchResults.users.map(u => (
+                          <div key={u.id} className="bg-white border-2 border-black p-4 shadow-[4px_4px_0_#1a1a1a] hover:-translate-y-1 transition-transform">
+                            <div className="font-bold text-lg">{u.full_name}</div>
+                            <div className="text-xs font-mono opacity-70 mt-1">{u.email}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Tasks Results */}
+                  {searchResults.tasks?.length > 0 && (
+                    <div className="flex flex-col gap-4">
+                      <h3 className="text-lg font-space font-bold uppercase tracking-widest border-b-4 border-black pb-2 inline-block self-start">Tasks</h3>
+                      <div className="flex flex-col gap-3">
+                        {searchResults.tasks.map(t => (
+                          <div key={t.id} className="bg-white border-2 border-black p-4 shadow-[4px_4px_0_#1a1a1a] flex justify-between items-center hover:-translate-y-1 transition-transform">
+                            <span className="font-bold text-sm">{t.title}</span>
+                            <span className={`text-[10px] font-bold uppercase px-2 py-1 border border-black shadow-[2px_2px_0_#000] ${t.status === 'Done' ? 'bg-[var(--primary)] text-white' : 'bg-[var(--gold)] text-black'}`}>
+                              {t.status}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Messages Results */}
+                  {searchResults.messages?.length > 0 && (
+                    <div className="flex flex-col gap-4">
+                      <h3 className="text-lg font-space font-bold uppercase tracking-widest border-b-4 border-black pb-2 inline-block self-start">Messages</h3>
+                      <div className="flex flex-col gap-3">
+                        {searchResults.messages.map(m => {
+                          const msgDate = new Date(m.created_at + (m.created_at.endsWith('Z') ? '' : 'Z'));
+                          return (
+                            <div key={m.id} className="bg-white border-2 border-black p-4 shadow-[4px_4px_0_#1a1a1a] flex flex-col gap-2 hover:-translate-y-1 transition-transform">
+                              <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-wider border-b-2 border-black/10 pb-2">
+                                <span className="text-[var(--primary)]">User #{m.sender_id}</span>
+                                <span className="font-mono">{msgDate.toLocaleDateString()} {msgDate.toLocaleTimeString()}</span>
+                              </div>
+                              <p className="text-sm font-medium whitespace-pre-wrap">{m.content || "Attachment"}</p>
+                              <div className="mt-2 text-[10px] font-bold bg-black text-[var(--gold)] inline-block self-start px-2 py-1 shadow-[2px_2px_0_var(--gold)]">
+                                In Channel #{m.channel_id}
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {searchResults.messages?.length === 0 && searchResults.tasks?.length === 0 && searchResults.users?.length === 0 && (
+                    <div className="text-center py-12 font-bold uppercase tracking-widest text-[var(--danger)]">
+                      No results found for "{searchQuery}"
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           </div>
         </div>

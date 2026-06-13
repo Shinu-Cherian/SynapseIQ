@@ -204,3 +204,75 @@ def remove_invitation(
             detail="Invitation not found"
         )
     return {"message": "Invitation revoked successfully"}
+
+@router.get("/{workspace_id}/search")
+def search_workspace(
+    workspace_id: str,
+    q: str,
+    db: Session = Depends(get_db),
+    current_member: WorkspaceMember = Depends(RequireWorkspaceRole(["Owner", "Admin", "Member"]))
+):
+    """
+    Globally searches messages, tasks, and users within the workspace.
+    """
+    if not q or len(q.strip()) < 2:
+        return {"messages": [], "tasks": [], "users": []}
+        
+    query = f"%{q.strip().lower()}%"
+    
+    # 1. Search Messages
+    from app.modules.chat.models import Message, Channel
+    from sqlalchemy import func
+    
+    # Only search messages in channels the user has access to
+    user_id = current_member.user_id
+    accessible_channels = db.query(Channel.id).filter(
+        Channel.workspace_id == workspace_id,
+        (Channel.is_private == False) | (Channel.dm_user_1_id == user_id) | (Channel.dm_user_2_id == user_id)
+    ).subquery()
+    
+    messages = db.query(Message).filter(
+        Message.channel_id.in_(accessible_channels),
+        func.lower(Message.content).like(query)
+    ).order_by(Message.created_at.desc()).limit(20).all()
+    
+    # 2. Search Tasks
+    from app.modules.projects.models import ProjectTask, Project
+    tasks = db.query(ProjectTask).join(Project).filter(
+        Project.workspace_id == workspace_id,
+        (func.lower(ProjectTask.title).like(query)) | (func.lower(ProjectTask.description).like(query))
+    ).order_by(ProjectTask.updated_at.desc()).limit(20).all()
+    
+    # 3. Search Users
+    from app.modules.auth.models import User
+    users = db.query(User).join(WorkspaceMember, User.id == WorkspaceMember.user_id).filter(
+        WorkspaceMember.workspace_id == workspace_id,
+        (func.lower(User.full_name).like(query)) | (func.lower(User.email).like(query))
+    ).limit(10).all()
+    
+    return {
+        "messages": [
+            {
+                "id": m.id,
+                "content": m.content,
+                "channel_id": m.channel_id,
+                "created_at": m.created_at,
+                "sender_id": m.sender_id
+            } for m in messages
+        ],
+        "tasks": [
+            {
+                "id": t.id,
+                "title": t.title,
+                "status": t.status,
+                "project_id": t.project_id
+            } for t in tasks
+        ],
+        "users": [
+            {
+                "id": u.id,
+                "full_name": u.full_name,
+                "email": u.email
+            } for u in users
+        ]
+    }

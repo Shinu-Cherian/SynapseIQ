@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.database import Base, engine
 from app.core.redis_client import redis_manager
+from app.core.rate_limit import setup_rate_limiting
 
 # Import models to register them on Base metadata before auto-creating tables
 from app.modules.auth.models import User
@@ -56,6 +57,9 @@ app = FastAPI(
     lifespan=lifespan,
     debug=settings.DEBUG
 )
+
+# Setup Rate Limiting
+setup_rate_limiting(app)
 
 # Set CORS middleware (essential for frontend communication)
 app.add_middleware(

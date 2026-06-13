@@ -20,17 +20,24 @@ class ChannelResponse(ChannelBase):
     dm_user_1_id: Optional[int] = None
     dm_user_2_id: Optional[int] = None
     created_at: datetime
+    unread_count: int = 0
 
     model_config = ConfigDict(from_attributes=True)
 
 # Base Message properties
 class MessageBase(BaseModel):
-    content: str
+    content: Optional[str] = None
     parent_id: Optional[int] = Field(default=None, description="ID of parent message if replying to a thread")
+    file_url: Optional[str] = None
+    file_name: Optional[str] = None
+    file_type: Optional[str] = None
 
 # Schema to create a message
 class MessageCreate(MessageBase):
     pass
+
+class MessageUpdate(BaseModel):
+    content: str
 
 # Schema to return message details
 class MessageResponse(MessageBase):
