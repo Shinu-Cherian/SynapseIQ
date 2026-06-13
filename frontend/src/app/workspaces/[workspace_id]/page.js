@@ -92,6 +92,8 @@ export default function WorkspaceHubPage() {
   const [editingMeetingId, setEditingMeetingId] = useState(null)
   const [editMeetingDate, setEditMeetingDate] = useState('')
 
+  const parseMeetingDate = (dateStr) => new Date(dateStr + (dateStr.endsWith('Z') ? '' : 'Z'))
+
   useEffect(() => {
     const updateCountdown = () => {
       const scheduledMeetings = meetings.filter(m => m.status === 'scheduled');
@@ -100,9 +102,9 @@ export default function WorkspaceHubPage() {
         return;
       }
       const closest = scheduledMeetings.reduce((prev, curr) => {
-        return (new Date(curr.scheduled_at) < new Date(prev.scheduled_at)) ? curr : prev;
+        return (parseMeetingDate(curr.scheduled_at) < parseMeetingDate(prev.scheduled_at)) ? curr : prev;
       });
-      const diff = new Date(closest.scheduled_at) - new Date();
+      const diff = parseMeetingDate(closest.scheduled_at) - new Date();
       if (diff > 0) {
         const h = Math.floor(diff / (1000 * 60 * 60));
         const m = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
@@ -155,6 +157,7 @@ export default function WorkspaceHubPage() {
       
       // Load initial tab data
       loadDashboardTab()
+      api.meetings.list(workspace_id).then(setMeetings).catch(console.error)
     } catch (err) {
       console.error(err)
       router.push('/workspaces')
@@ -1553,7 +1556,7 @@ export default function WorkspaceHubPage() {
                           {meet.title}
                         </h4>
                         <div className="flex gap-2 items-center mt-2">
-                          <span className="text-[10px] font-bold tracking-widest border-2 border-black bg-[var(--paper)] px-2 py-0.5 uppercase inline-block">{new Date(meet.scheduled_at).toLocaleString()}</span>
+                          <span className="text-[10px] font-bold tracking-widest border-2 border-black bg-[var(--paper)] px-2 py-0.5 uppercase inline-block">{parseMeetingDate(meet.scheduled_at).toLocaleString()}</span>
                           <span className="text-[10px] font-bold uppercase text-gray-500">{meet.status.replace('_', ' ')}</span>
                         </div>
                       </div>
@@ -1586,15 +1589,15 @@ export default function WorkspaceHubPage() {
                               <>
                                 <button
                                   onClick={() => handleStartMeeting(meet.id)}
-                                  disabled={new Date() < new Date(meet.scheduled_at)}
-                                  className={`px-4 py-2 text-black border-2 border-black text-[10px] font-bold uppercase tracking-wider transition-all ${new Date() < new Date(meet.scheduled_at) ? 'bg-gray-300 opacity-50 cursor-not-allowed' : 'bg-[var(--gold)] hover:-translate-y-0.5 hover:shadow-[4px_4px_0_#1a1a1a]'}`}
+                                  disabled={new Date() < parseMeetingDate(meet.scheduled_at)}
+                                  className={`px-4 py-2 text-black border-2 border-black text-[10px] font-bold uppercase tracking-wider transition-all ${new Date() < parseMeetingDate(meet.scheduled_at) ? 'bg-gray-300 opacity-50 cursor-not-allowed' : 'bg-[var(--gold)] hover:-translate-y-0.5 hover:shadow-[4px_4px_0_#1a1a1a]'}`}
                                 >
                                   Start Meeting
                                 </button>
                                 <button
                                   onClick={() => {
                                     setEditingMeetingId(meet.id)
-                                    const d = new Date(meet.scheduled_at);
+                                    const d = parseMeetingDate(meet.scheduled_at);
                                     d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
                                     setEditMeetingDate(d.toISOString().slice(0, 16));
                                   }}
