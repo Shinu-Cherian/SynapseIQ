@@ -251,17 +251,38 @@ export const api = {
   },
 
   meetings: {
-    list: (workspaceId) => 
-      fetch(`${BASE_URL}/workspaces/${workspaceId}/meetings`, {
-        method: 'GET',
-        headers: getHeaders()
-      }).then(handleResponse),
-      
-    create: (workspaceId, title, description, scheduledAt, durationMinutes) => 
+    create: (workspaceId, title, description, scheduledAt, duration) => 
       fetch(`${BASE_URL}/workspaces/${workspaceId}/meetings`, {
         method: 'POST',
         headers: getHeaders(),
-        body: JSON.stringify({ title, description, scheduled_at: scheduledAt, duration_minutes: parseInt(durationMinutes) })
+        body: JSON.stringify({ title, description, scheduled_at: scheduledAt, duration_minutes: duration })
+      }).then(handleResponse),
+      
+    list: (workspaceId) => 
+      fetch(`${BASE_URL}/workspaces/${workspaceId}/meetings`, { headers: getHeaders() }).then(handleResponse),
+
+    startMeeting: (workspaceId, meetingId) => 
+      fetch(`${BASE_URL}/workspaces/${workspaceId}/meetings/${meetingId}/start`, {
+        method: 'POST',
+        headers: getHeaders()
+      }).then(handleResponse),
+
+    endMeeting: (workspaceId, meetingId) => 
+      fetch(`${BASE_URL}/workspaces/${workspaceId}/meetings/${meetingId}/end`, {
+        method: 'POST',
+        headers: getHeaders(),
+      }).then(handleResponse),
+    delete: (workspaceId, meetingId) =>
+      fetch(`${BASE_URL}/workspaces/${workspaceId}/meetings/${meetingId}`, {
+        method: 'DELETE',
+        headers: getHeaders(),
+      }).then(handleResponse),
+      
+    update: (workspaceId, meetingId, scheduledAt) =>
+      fetch(`${BASE_URL}/workspaces/${workspaceId}/meetings/${meetingId}`, {
+        method: 'PUT',
+        headers: getHeaders(),
+        body: JSON.stringify({ scheduled_at: scheduledAt })
       }).then(handleResponse),
       
     uploadTranscript: (workspaceId, meetingId, transcript) => 

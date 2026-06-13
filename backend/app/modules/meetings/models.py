@@ -13,6 +13,8 @@ class Meeting(Base):
     scheduled_at = Column(DateTime, nullable=False)
     duration_minutes = Column(Integer, nullable=False, default=30)
     creator_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    status = Column(String, nullable=False, default="scheduled") # scheduled, in_progress, completed
+    jitsi_room_id = Column(String, unique=True, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     # Relationships

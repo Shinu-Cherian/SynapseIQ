@@ -22,3 +22,5 @@ class DashboardResponse(BaseModel):
     total_members: int
     projects_summary: List[ProjectSummary]
     team_workload: List[WorkloadStats]
+    total_tasks: int
+    completed_tasks: int

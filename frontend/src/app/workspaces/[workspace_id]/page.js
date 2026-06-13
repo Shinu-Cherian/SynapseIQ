@@ -67,6 +67,16 @@ export default function WorkspaceHubPage() {
   const [editDocViewerIds, setEditDocViewerIds] = useState([])
   const [selectedDocVersions, setSelectedDocVersions] = useState([])
   const [selectedDocTitle, setSelectedDocTitle] = useState('')
+  const [activeJitsiRoomId, setActiveJitsiRoomId] = useState(null)
+  const [activeJitsiMeetingTitle, setActiveJitsiMeetingTitle] = useState('')
+
+  // Jitsi Script Loading
+  useEffect(() => {
+    const script = document.createElement("script")
+    script.src = "https://meet.jit.si/external_api.js"
+    script.async = true
+    document.body.appendChild(script)
+  }, [])
 
   // 5. Meetings State
   const [meetings, setMeetings] = useState([])
@@ -78,6 +88,34 @@ export default function WorkspaceHubPage() {
   const [transcriptText, setTranscriptText] = useState('')
   const [meetSummary, setMeetSummary] = useState(null)
   const [summarizeLoading, setSummarizeLoading] = useState(false)
+  const [meetingCountdown, setMeetingCountdown] = useState(null)
+  const [editingMeetingId, setEditingMeetingId] = useState(null)
+  const [editMeetingDate, setEditMeetingDate] = useState('')
+
+  useEffect(() => {
+    const updateCountdown = () => {
+      const scheduledMeetings = meetings.filter(m => m.status === 'scheduled');
+      if (scheduledMeetings.length === 0) {
+        setMeetingCountdown(null);
+        return;
+      }
+      const closest = scheduledMeetings.reduce((prev, curr) => {
+        return (new Date(curr.scheduled_at) < new Date(prev.scheduled_at)) ? curr : prev;
+      });
+      const diff = new Date(closest.scheduled_at) - new Date();
+      if (diff > 0) {
+        const h = Math.floor(diff / (1000 * 60 * 60));
+        const m = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+        const s = Math.floor((diff % (1000 * 60)) / 1000);
+        setMeetingCountdown(`Starts in ${h}h ${m}m ${s}s`);
+      } else {
+        setMeetingCountdown("Meeting time arrived");
+      }
+    };
+    updateCountdown();
+    const interval = setInterval(updateCountdown, 1000);
+    return () => clearInterval(interval);
+  }, [meetings]);
 
   // 6. AI Brain State
   const [aiQuestion, setAiQuestion] = useState('')
@@ -494,13 +532,70 @@ export default function WorkspaceHubPage() {
       const created = await api.meetings.create(workspace_id, newMeetTitle, newMeetDesc, dateIso, newMeetDuration)
       setMeetings([created, ...meetings])
       setNewMeetTitle('')
-      setNewMeetDesc('')
       setNewMeetDate('')
-      alert('Meeting scheduled!')
     } catch (err) {
       alert(err.message)
     }
   }
+
+  const handleUpdateMeeting = async (meetId) => {
+    try {
+      const dateIso = new Date(editMeetingDate).toISOString()
+      const updated = await api.meetings.update(workspace_id, meetId, dateIso)
+      setMeetings(meetings.map(m => m.id === meetId ? updated : m))
+      setEditingMeetingId(null)
+    } catch (err) {
+      alert(err.message)
+    }
+  }
+  const handleStartMeeting = async (meetId) => {
+    try {
+      const updated = await api.meetings.startMeeting(workspace_id, meetId)
+      setMeetings(meetings.map(m => m.id === meetId ? updated : m))
+    } catch (err) {
+      alert(err.message)
+    }
+  }
+
+  const handleEndMeeting = async (meetId) => {
+    try {
+      const updated = await api.meetings.endMeeting(workspace_id, meetId)
+      setMeetings(meetings.map(m => m.id === meetId ? updated : m))
+      setActiveJitsiRoomId(null)
+    } catch (err) {
+      alert(err.message)
+    }
+  }
+
+  const handleDeleteMeeting = async (meetId) => {
+    if (!window.confirm("Are you sure you want to delete this meeting?")) return
+    try {
+      await api.meetings.delete(workspace_id, meetId)
+      setMeetings(meetings.filter(m => m.id !== meetId))
+    } catch (err) {
+      alert(err.message)
+    }
+  }
+
+  useEffect(() => {
+    let jitsiApi = null
+    if (activeJitsiRoomId && window.JitsiMeetExternalAPI) {
+        const domain = 'meet.jit.si'
+        const options = {
+            roomName: activeJitsiRoomId,
+            width: '100%',
+            height: '100%',
+            parentNode: document.querySelector('#jitsi-container'),
+            userInfo: {
+                displayName: currentUser?.full_name || 'SynapseIQ User'
+            }
+        }
+        jitsiApi = new window.JitsiMeetExternalAPI(domain, options)
+    }
+    return () => {
+        if (jitsiApi) jitsiApi.dispose()
+    }
+  }, [activeJitsiRoomId, currentUser])
 
   const handleUploadTranscript = async (e) => {
     e.preventDefault()
@@ -568,6 +663,12 @@ export default function WorkspaceHubPage() {
         </div>
 
         <div className="flex items-center gap-8">
+          {meetingCountdown && (
+            <div className="text-xs font-bold bg-yellow-400 text-black px-3 py-1 border-2 border-black shadow-[2px_2px_0_#1a1a1a] flex items-center gap-2">
+              <span className="w-1.5 h-1.5 rounded-full bg-black animate-pulse"></span>
+              {meetingCountdown}
+            </div>
+          )}
           {/* Notifications Indicator */}
           <div className="relative cursor-pointer hover:-translate-y-0.5 transition-transform" onClick={() => handleTabChange('notifications')}>
             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="black" stroke="black" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-black">
@@ -591,7 +692,7 @@ export default function WorkspaceHubPage() {
       {/* Main Container */}
       <div className="flex flex-grow h-[calc(100vh-72px)] overflow-hidden">
         {/* Sidebar Nav */}
-        <aside className="w-72 bg-[var(--paper)] border-r-2 border-black p-6 flex flex-col justify-between z-10 shadow-[4px_0px_0_rgba(0,0,0,0.05)]">
+        <aside className="w-80 shrink-0 bg-[var(--paper)] border-r-2 border-black p-6 flex flex-col justify-between z-10 shadow-[4px_0px_0_rgba(0,0,0,0.05)]">
           <div className="flex flex-col gap-4">
             <h3 className="text-xs font-space tracking-widest uppercase mb-2 font-bold border-b-2 border-black pb-2">Modules</h3>
             
@@ -637,7 +738,7 @@ export default function WorkspaceHubPage() {
           
           {/* --- TAB A: DASHBOARD ANALYTICS --- */}
           {activeTab === 'dashboard' && (
-            <div className="flex flex-col gap-10 max-w-6xl">
+            <div className="flex flex-col gap-10 w-full">
               <h2 className="text-4xl font-space font-bold border-b-4 border-black pb-4">Workspace Overview</h2>
               {loadingStats ? (
                 <p className="text-sm font-bold uppercase tracking-wider">Fetching statistics...</p>
@@ -1300,9 +1401,14 @@ export default function WorkspaceHubPage() {
                           <div className="border-t-2 border-black p-3 bg-[var(--paper-lift)] flex flex-col gap-3">
                             {editingAccessDocId === doc.id ? (
                               <div className="flex flex-col gap-3">
-                                <div className="flex justify-between items-center">
-                                  <span className="text-xs font-bold uppercase">Edit Access</span>
-                                  <button onClick={() => setEditingAccessDocId(null)} className="text-[10px] font-bold underline">Cancel</button>
+                                <div className="flex justify-between items-center mb-2">
+                                  <span className="text-sm font-bold uppercase tracking-wider">Edit Access</span>
+                                  <button 
+                                    onClick={() => setEditingAccessDocId(null)} 
+                                    className="px-3 py-1 bg-white border-2 border-black text-[10px] font-bold uppercase tracking-wider hover:-translate-y-0.5 hover:shadow-[2px_2px_0_#1a1a1a] transition-all"
+                                  >
+                                    Cancel
+                                  </button>
                                 </div>
                                 <select
                                   value={editDocIsPublic ? "public" : "restricted"}
@@ -1330,7 +1436,12 @@ export default function WorkspaceHubPage() {
                                     ))}
                                   </div>
                                 )}
-                                <button onClick={() => handleUpdateAccess(doc.id)} className="self-start px-4 py-1 bg-black text-white text-[10px] font-bold uppercase tracking-wider">Save Changes</button>
+                                <button 
+                                  onClick={() => handleUpdateAccess(doc.id)} 
+                                  className="mt-3 self-start px-6 py-2 bg-black text-white border-2 border-black text-xs font-bold uppercase tracking-wider hover:-translate-y-0.5 hover:shadow-[4px_4px_0_var(--gold)] transition-all"
+                                >
+                                  Save Changes
+                                </button>
                               </div>
                             ) : (
                               <button 
@@ -1339,7 +1450,7 @@ export default function WorkspaceHubPage() {
                                   setEditDocIsPublic(doc.is_public)
                                   setEditDocViewerIds(doc.viewer_ids || [])
                                 }}
-                                className="text-[10px] font-bold uppercase tracking-wider underline self-start opacity-70 hover:opacity-100"
+                                className="self-start px-4 py-2 bg-[var(--gold)] text-black border-2 border-black text-[10px] font-bold uppercase tracking-wider hover:-translate-y-0.5 hover:shadow-[4px_4px_0_#1a1a1a] transition-all shadow-[2px_2px_0_#1a1a1a]"
                               >
                                 Edit Access
                               </button>
@@ -1379,7 +1490,7 @@ export default function WorkspaceHubPage() {
                             </a>
                             <a
                               href={api.documents.getDownloadUrl(workspace_id, ver.document_id, ver.version_number)}
-                              className="px-4 py-2 bg-black text-white border-2 border-black text-[10px] font-bold uppercase tracking-wider hover:-translate-y-0.5 hover:shadow-[4px_4px_0_var(--gold)] transition-all whitespace-nowrap"
+                              className="px-4 py-2 bg-[var(--gold)] text-black border-2 border-black text-[10px] font-bold uppercase tracking-wider hover:-translate-y-0.5 hover:shadow-[4px_4px_0_#1a1a1a] transition-all whitespace-nowrap"
                               download
                             >
                               Download
@@ -1401,29 +1512,31 @@ export default function WorkspaceHubPage() {
                 <h2 className="text-4xl font-space font-bold">Meeting Intelligence</h2>
                 
                 {/* Meeting Creator */}
-                <form onSubmit={handleCreateMeeting} className="flex flex-wrap gap-4 items-center bg-white border-2 border-black p-4 shadow-[6px_6px_0_#1a1a1a]">
-                  <input
-                    type="text"
-                    required
-                    placeholder="Meeting title..."
-                    value={newMeetTitle}
-                    onChange={(e) => setNewMeetTitle(e.target.value)}
-                    className="px-4 py-2 bg-[var(--paper)] border-2 border-black text-sm font-bold focus:outline-none focus:bg-white"
-                  />
-                  <input
-                    type="datetime-local"
-                    required
-                    value={newMeetDate}
-                    onChange={(e) => setNewMeetDate(e.target.value)}
-                    className="px-4 py-2 bg-[var(--paper)] border-2 border-black text-sm font-bold focus:outline-none focus:bg-white"
-                  />
-                  <button
-                    type="submit"
-                    className="px-6 py-2 bg-black text-white border-2 border-black text-xs font-bold uppercase tracking-wider hover:-translate-y-0.5 hover:shadow-[4px_4px_0_var(--gold)] transition-all whitespace-nowrap"
-                  >
-                    + Schedule
-                  </button>
-                </form>
+                {(currentUserRole === 'Owner' || currentUserRole === 'Admin') && (
+                  <form onSubmit={handleCreateMeeting} className="flex flex-wrap gap-4 items-center bg-white border-2 border-black p-4 shadow-[6px_6px_0_#1a1a1a]">
+                    <input
+                      type="text"
+                      required
+                      placeholder="Meeting title..."
+                      value={newMeetTitle}
+                      onChange={(e) => setNewMeetTitle(e.target.value)}
+                      className="px-4 py-2 bg-[var(--paper)] border-2 border-black text-sm font-bold focus:outline-none focus:bg-white"
+                    />
+                    <input
+                      type="datetime-local"
+                      required
+                      value={newMeetDate}
+                      onChange={(e) => setNewMeetDate(e.target.value)}
+                      className="px-4 py-2 bg-[var(--paper)] border-2 border-black text-sm font-bold focus:outline-none focus:bg-white"
+                    />
+                    <button
+                      type="submit"
+                      className="px-6 py-2 bg-black text-white border-2 border-black text-xs font-bold uppercase tracking-wider hover:-translate-y-0.5 hover:shadow-[4px_4px_0_var(--gold)] transition-all whitespace-nowrap"
+                    >
+                      + Schedule
+                    </button>
+                  </form>
+                )}
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
@@ -1431,25 +1544,122 @@ export default function WorkspaceHubPage() {
                 <div className="flex flex-col gap-4">
                   <h3 className="font-bold text-lg font-space uppercase tracking-widest border-b-2 border-black pb-2 mb-2">Meetings Feed</h3>
                   {meetings.map((meet) => (
-                    <div key={meet.id} className="p-5 bg-white border-2 border-black shadow-[4px_4px_0_rgba(0,0,0,1)] flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                    <div key={meet.id} className="p-5 bg-white border-2 border-black shadow-[4px_4px_0_rgba(0,0,0,1)] flex flex-col md:flex-row justify-between items-start md:items-center gap-4 hover:-translate-y-1 hover:shadow-[6px_6px_0_rgba(0,0,0,1)] transition-transform">
                       <div>
-                        <h4 className="font-bold text-sm uppercase tracking-wider">{meet.title}</h4>
-                        <p className="text-[10px] font-bold tracking-widest border-2 border-black bg-[var(--paper)] px-2 py-0.5 uppercase mt-2 inline-block">{new Date(meet.scheduled_at).toLocaleString()}</p>
+                        <h4 className="font-bold text-sm uppercase tracking-wider flex items-center gap-2">
+                          {meet.status === 'scheduled' && <span className="w-2 h-2 rounded-full bg-yellow-500"></span>}
+                          {meet.status === 'in_progress' && <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>}
+                          {meet.status === 'completed' && <span className="w-2 h-2 rounded-full bg-gray-500"></span>}
+                          {meet.title}
+                        </h4>
+                        <div className="flex gap-2 items-center mt-2">
+                          <span className="text-[10px] font-bold tracking-widest border-2 border-black bg-[var(--paper)] px-2 py-0.5 uppercase inline-block">{new Date(meet.scheduled_at).toLocaleString()}</span>
+                          <span className="text-[10px] font-bold uppercase text-gray-500">{meet.status.replace('_', ' ')}</span>
+                        </div>
                       </div>
 
-                      <div className="flex gap-3">
-                        <button
-                          onClick={() => setSelectedMeeting(meet)}
-                          className="px-4 py-2 bg-[var(--paper)] border-2 border-black hover:-translate-y-0.5 hover:shadow-[4px_4px_0_#1a1a1a] text-[10px] font-bold uppercase tracking-wider transition-all"
-                        >
-                          Transcript
-                        </button>
-                        <button
-                          onClick={() => handleTriggerSummary(meet)}
-                          className="px-4 py-2 bg-[var(--gold)] text-black border-2 border-black hover:-translate-y-0.5 hover:shadow-[4px_4px_0_#1a1a1a] text-[10px] font-bold uppercase tracking-wider transition-all"
-                        >
-                          AI Summary
-                        </button>
+                      <div className="flex gap-3 flex-wrap">
+                        {meet.status === 'scheduled' && (
+                          (currentUserRole === 'Owner' || currentUserRole === 'Admin') ? (
+                            editingMeetingId === meet.id ? (
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="datetime-local"
+                                  value={editMeetingDate}
+                                  onChange={(e) => setEditMeetingDate(e.target.value)}
+                                  className="px-2 py-1 text-xs border-2 border-black focus:outline-none"
+                                />
+                                <button
+                                  onClick={() => handleUpdateMeeting(meet.id)}
+                                  className="px-3 py-1.5 bg-black text-white text-[10px] font-bold uppercase tracking-wider border-2 border-black"
+                                >
+                                  Save
+                                </button>
+                                <button
+                                  onClick={() => setEditingMeetingId(null)}
+                                  className="px-3 py-1.5 bg-gray-200 text-black text-[10px] font-bold uppercase tracking-wider border-2 border-black"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            ) : (
+                              <>
+                                <button
+                                  onClick={() => handleStartMeeting(meet.id)}
+                                  disabled={new Date() < new Date(meet.scheduled_at)}
+                                  className={`px-4 py-2 text-black border-2 border-black text-[10px] font-bold uppercase tracking-wider transition-all ${new Date() < new Date(meet.scheduled_at) ? 'bg-gray-300 opacity-50 cursor-not-allowed' : 'bg-[var(--gold)] hover:-translate-y-0.5 hover:shadow-[4px_4px_0_#1a1a1a]'}`}
+                                >
+                                  Start Meeting
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setEditingMeetingId(meet.id)
+                                    const d = new Date(meet.scheduled_at);
+                                    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+                                    setEditMeetingDate(d.toISOString().slice(0, 16));
+                                  }}
+                                  className="px-4 py-2 bg-white text-black border-2 border-black hover:-translate-y-0.5 hover:shadow-[4px_4px_0_#1a1a1a] text-[10px] font-bold uppercase tracking-wider transition-all"
+                                >
+                                  Reschedule
+                                </button>
+                              </>
+                            )
+                          ) : (
+                            <div className="flex items-center gap-2 px-4 py-2 border-2 border-dashed border-gray-300 bg-gray-50 text-gray-500 text-[10px] font-bold uppercase tracking-wider">
+                              <span className="w-1.5 h-1.5 rounded-full bg-yellow-500 animate-pulse"></span>
+                              Waiting for Host
+                            </div>
+                          )
+                        )}
+
+                        {meet.status === 'in_progress' && (
+                          <>
+                            <button
+                              onClick={() => {
+                                setActiveJitsiRoomId(meet.jitsi_room_id)
+                                setActiveJitsiMeetingTitle(meet.title)
+                              }}
+                              className="px-4 py-2 bg-black text-white border-2 border-black hover:-translate-y-0.5 hover:shadow-[4px_4px_0_var(--gold)] text-[10px] font-bold uppercase tracking-wider transition-all"
+                            >
+                              Join Meeting
+                            </button>
+                            {(currentUserRole === 'Owner' || currentUserRole === 'Admin') && (
+                              <button
+                                onClick={() => handleEndMeeting(meet.id)}
+                                className="px-4 py-2 bg-red-600 text-white border-2 border-black hover:-translate-y-0.5 hover:shadow-[4px_4px_0_#1a1a1a] text-[10px] font-bold uppercase tracking-wider transition-all"
+                              >
+                                End Meeting
+                              </button>
+                            )}
+                          </>
+                        )}
+
+                        {meet.status === 'completed' && (
+                          <>
+                            <button
+                              onClick={() => setSelectedMeeting(meet)}
+                              className="px-4 py-2 bg-[var(--paper)] border-2 border-black hover:-translate-y-0.5 hover:shadow-[4px_4px_0_#1a1a1a] text-[10px] font-bold uppercase tracking-wider transition-all"
+                            >
+                              Add Meeting Notes
+                            </button>
+                            <button
+                              onClick={() => handleTriggerSummary(meet)}
+                              className="px-4 py-2 bg-[var(--gold)] text-black border-2 border-black hover:-translate-y-0.5 hover:shadow-[4px_4px_0_#1a1a1a] text-[10px] font-bold uppercase tracking-wider transition-all"
+                            >
+                              AI Summary
+                            </button>
+                          </>
+                        )}
+                        
+                        {(currentUserRole === 'Owner' || currentUserRole === 'Admin') && meet.status === 'scheduled' && (
+                          <button
+                            onClick={() => handleDeleteMeeting(meet.id)}
+                            className="px-4 py-2 bg-white text-red-600 border-2 border-red-600 hover:-translate-y-0.5 hover:shadow-[4px_4px_0_#dc2626] text-[10px] font-bold uppercase tracking-wider transition-all"
+                            title="Delete Meeting"
+                          >
+                            Delete
+                          </button>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -1460,12 +1670,12 @@ export default function WorkspaceHubPage() {
                   {/* Selected Meeting Transcript Upload */}
                   {selectedMeeting && (
                     <div className="p-8 bg-[var(--paper-lift)] border-2 border-black shadow-[8px_8px_0_#1a1a1a]">
-                      <h4 className="font-bold text-lg font-space uppercase tracking-widest mb-4 border-b-2 border-black pb-2">Upload Transcript for: {selectedMeeting.title}</h4>
+                      <h4 className="font-bold text-lg font-space uppercase tracking-widest mb-4 border-b-2 border-black pb-2">Add Meeting Notes for: {selectedMeeting.title}</h4>
                       <form onSubmit={handleUploadTranscript} className="flex flex-col gap-4">
                         <textarea
                           rows="5"
                           required
-                          placeholder="Type or paste transcription text..."
+                          placeholder="Type or paste meeting notes/transcript here..."
                           value={transcriptText}
                           onChange={(e) => setTranscriptText(e.target.value)}
                           className="w-full p-4 bg-white border-2 border-black text-sm font-medium focus:outline-none"
@@ -1474,7 +1684,7 @@ export default function WorkspaceHubPage() {
                           type="submit"
                           className="w-fit px-8 py-3 bg-black text-white border-2 border-black text-xs font-bold uppercase tracking-wider hover:-translate-y-0.5 hover:shadow-[4px_4px_0_var(--gold)] transition-all"
                         >
-                          Save Transcript
+                          Save Notes
                         </button>
                       </form>
                     </div>
@@ -1482,7 +1692,7 @@ export default function WorkspaceHubPage() {
 
                   {/* AI Summarization result */}
                   <div className="p-8 bg-[var(--paper-lift)] border-2 border-black shadow-[8px_8px_0_#1a1a1a]">
-                    <h3 className="font-bold text-lg font-space uppercase tracking-widest border-b-2 border-black pb-3 mb-5">Llama 3 AI intelligence Report</h3>
+                    <h3 className="font-bold text-lg font-space uppercase tracking-widest border-b-2 border-black pb-3 mb-5">SynapseIQ AI Intelligence Report</h3>
                     {summarizeLoading ? (
                       <p className="text-sm font-bold uppercase tracking-wider animate-pulse">Requesting AI summary from backend...</p>
                     ) : !meetSummary ? (
@@ -1632,6 +1842,22 @@ export default function WorkspaceHubPage() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* JITSI MODAL */}
+      {activeJitsiRoomId && (
+        <div className="fixed inset-0 z-[100] bg-black flex flex-col">
+          <div className="p-4 bg-[var(--gold)] border-b-4 border-black flex justify-between items-center z-[101] shadow-[0_4px_0_#1a1a1a]">
+            <h2 className="font-space font-bold text-xl uppercase tracking-widest text-black">{activeJitsiMeetingTitle || 'Meeting In Progress'}</h2>
+            <button 
+              onClick={() => setActiveJitsiRoomId(null)}
+              className="px-6 py-2 bg-white text-black border-2 border-black font-bold uppercase tracking-wider hover:-translate-y-0.5 hover:shadow-[4px_4px_0_#1a1a1a] transition-all"
+            >
+              Leave Meeting Room
+            </button>
+          </div>
+          <div id="jitsi-container" className="flex-grow w-full h-full bg-black"></div>
         </div>
       )}
     </div>

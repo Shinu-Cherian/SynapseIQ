@@ -1,4 +1,4 @@
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
 from sqlalchemy.orm import Session
@@ -9,9 +9,10 @@ from app.modules.auth.services import get_user_by_id
 from app.modules.auth.models import User
 
 # HTTPBearer extracts the Authorization header e.g., 'Bearer <token>'
-security_scheme = HTTPBearer()
+security_scheme = HTTPBearer(auto_error=False)
 
 def get_current_user(
+    request: Request,
     db: Session = Depends(get_db),
     credentials: HTTPAuthorizationCredentials = Depends(security_scheme)
 ) -> User:
@@ -19,7 +20,17 @@ def get_current_user(
     Decodes JWT token, validates authenticity, and returns the current user.
     Throws 401 Unauthorized if invalid or inactive.
     """
-    token = credentials.credentials
+    token = None
+    if credentials:
+        token = credentials.credentials
+    elif "token" in request.query_params:
+        token = request.query_params.get("token")
+        
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated"
+        )
     try:
         # 1. Decode JWT payload
         payload = jwt.decode(

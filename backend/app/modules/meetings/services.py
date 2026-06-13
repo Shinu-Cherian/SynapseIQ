@@ -4,9 +4,12 @@ from typing import List, Optional
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 from app.modules.meetings.models import Meeting, MeetingNote
-from app.modules.meetings.schemas import MeetingCreate
+from app.modules.meetings.schemas import MeetingCreate, MeetingUpdate
 from app.core.config import settings
+from app.modules.notifications.services import create_notification
+from app.modules.workspace.models import WorkspaceMember
 
+import uuid
 def create_meeting(db: Session, workspace_id: str, creator_id: int, meeting_in: MeetingCreate) -> Meeting:
     """
     Schedules a new meeting inside a workspace.
@@ -17,11 +20,24 @@ def create_meeting(db: Session, workspace_id: str, creator_id: int, meeting_in: 
         description=meeting_in.description,
         scheduled_at=meeting_in.scheduled_at,
         duration_minutes=meeting_in.duration_minutes,
-        creator_id=creator_id
+        creator_id=creator_id,
+        jitsi_room_id=f"synapseiq-{workspace_id}-{uuid.uuid4().hex[:8]}"
     )
     db.add(db_meeting)
     db.commit()
     db.refresh(db_meeting)
+    
+    members = db.query(WorkspaceMember).filter(WorkspaceMember.workspace_id == workspace_id).all()
+    for member in members:
+        if member.user_id != creator_id:
+            create_notification(
+                db,
+                user_id=member.user_id,
+                workspace_id=workspace_id,
+                title="New Meeting Scheduled",
+                content=f"A new meeting '{meeting_in.title}' has been scheduled."
+            )
+            
     return db_meeting
 
 def get_workspace_meetings(db: Session, workspace_id: str) -> List[Meeting]:
@@ -35,6 +51,62 @@ def get_meeting_by_id(db: Session, meeting_id: int) -> Optional[Meeting]:
     Retrieves a meeting by ID.
     """
     return db.query(Meeting).filter(Meeting.id == meeting_id).first()
+
+def start_meeting(db: Session, meeting_id: int) -> Meeting:
+    """
+    Changes meeting status to 'in_progress'.
+    """
+    meeting = get_meeting_by_id(db, meeting_id)
+    if meeting:
+        meeting.status = "in_progress"
+        db.commit()
+        db.refresh(meeting)
+    return meeting
+
+def end_meeting(db: Session, meeting_id: int) -> Meeting:
+    """
+    Changes meeting status to 'completed'.
+    """
+    meeting = get_meeting_by_id(db, meeting_id)
+    if meeting:
+        meeting.status = "completed"
+        db.commit()
+        db.refresh(meeting)
+    return meeting
+
+def delete_meeting(db: Session, meeting_id: int) -> bool:
+    """
+    Deletes a scheduled meeting.
+    """
+    meeting = get_meeting_by_id(db, meeting_id)
+    if meeting:
+        db.delete(meeting)
+        db.commit()
+        return True
+    return False
+
+def update_meeting(db: Session, workspace_id: str, updater_id: int, meeting_id: int, meeting_in: MeetingUpdate) -> Meeting:
+    """
+    Updates the scheduled time of a meeting and fires notifications.
+    """
+    meeting = get_meeting_by_id(db, meeting_id)
+    if meeting and meeting.workspace_id == workspace_id:
+        meeting.scheduled_at = meeting_in.scheduled_at
+        db.commit()
+        db.refresh(meeting)
+        
+        # Notify all members about the time change
+        members = db.query(WorkspaceMember).filter(WorkspaceMember.workspace_id == workspace_id).all()
+        for member in members:
+            if member.user_id != updater_id:
+                create_notification(
+                    db,
+                    user_id=member.user_id,
+                    workspace_id=workspace_id,
+                    title="Meeting Rescheduled",
+                    content=f"The meeting '{meeting.title}' has been rescheduled to {meeting.scheduled_at}.",
+                )
+    return meeting
 
 def save_meeting_transcript(db: Session, meeting_id: int, transcript_text: str) -> MeetingNote:
     """
@@ -89,7 +161,7 @@ def generate_meeting_intelligence(db: Session, meeting_id: int) -> MeetingNote:
         "Content-Type": "application/json"
     }
     payload = {
-        "model": "llama3-8b-8192", # Llama 3 model
+        "model": "llama-3.1-8b-instant", # Llama 3 model
         "messages": [
             {
                 "role": "system",

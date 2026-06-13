@@ -5,6 +5,10 @@ from fastapi import HTTPException, status
 from app.modules.ai.models import DocumentChunk
 from app.modules.ai.embeddings import embedding_service
 from app.core.config import settings
+from app.modules.workspace.models import WorkspaceMember
+from app.modules.projects.models import Project, ProjectTask
+from app.modules.meetings.models import Meeting
+from sqlalchemy import func
 
 def chunk_text(text: str, chunk_size: int = 500, overlap: int = 100) -> List[str]:
     """
@@ -86,6 +90,52 @@ def semantic_search(
         DocumentChunk.embedding.cosine_distance(query_vector)
     ).limit(limit).all()
 
+def get_workspace_live_context(db: Session, workspace_id: str) -> str:
+    """
+    Sweeps the live database to build a dynamic context of the workspace state.
+    Includes: Members count, Team Head, Task counts, and Recent Meetings.
+    """
+    # 1. Members info
+    members = db.query(WorkspaceMember).filter(WorkspaceMember.workspace_id == workspace_id).all()
+    total_members = len(members)
+    team_heads = [m.user.full_name for m in members if m.role in ["Owner", "Admin"]]
+    heads_str = ", ".join(team_heads) if team_heads else "None"
+    
+    # 2. Task info
+    projects = db.query(Project).filter(Project.workspace_id == workspace_id).all()
+    project_ids = [p.id for p in projects]
+    tasks = db.query(ProjectTask).filter(ProjectTask.project_id.in_(project_ids)).all() if project_ids else []
+    
+    todo_count = sum(1 for t in tasks if t.status == "To Do")
+    in_progress_count = sum(1 for t in tasks if t.status == "In Progress")
+    review_count = sum(1 for t in tasks if t.status == "In Review")
+    done_count = sum(1 for t in tasks if t.status == "Done")
+    
+    task_details = ""
+    for t in tasks:
+        assignee_name = t.assignee.full_name if t.assignee else "Unassigned"
+        task_details += f"- [{t.status}] {t.title} (Assigned to: {assignee_name})\n"
+    
+    # 3. Meetings info
+    recent_meetings = db.query(Meeting).filter(Meeting.workspace_id == workspace_id).order_by(Meeting.scheduled_at.desc()).limit(3).all()
+    meetings_context = ""
+    for m in recent_meetings:
+        meetings_context += f"- {m.title} (Status: {m.status})\n"
+        if m.note and m.note.summary:
+            meetings_context += f"  Summary: {m.note.summary}\n"
+            
+    # Combine
+    live_context = (
+        f"--- LIVE WORKSPACE STATE ---\n"
+        f"Total Team Members: {total_members}\n"
+        f"Team Heads / Admins: {heads_str}\n"
+        f"Project Tasks State: {todo_count} To Do, {in_progress_count} In Progress, {review_count} In Review, {done_count} Done.\n"
+        f"Detailed Task Assignments:\n{task_details if task_details else 'No tasks assigned yet.'}\n"
+        f"Recent Meetings:\n{meetings_context if recent_meetings else 'No recent meetings.'}\n"
+        f"----------------------------\n"
+    )
+    return live_context
+
 def query_ai_brain(db: Session, workspace_id: str, question: str) -> Dict[str, Any]:
     """
     Retrieves relevant database context and calls Groq Llama 3 to generate a response (RAG).
@@ -93,25 +143,19 @@ def query_ai_brain(db: Session, workspace_id: str, question: str) -> Dict[str, A
     # 1. Retrieve the top 5 context chunks
     matching_chunks = semantic_search(db, workspace_id, question, limit=5)
     
-    if not matching_chunks:
-        return {
-            "question": question,
-            "answer": "I don't have any knowledge indexed in this workspace yet. Please upload documents first.",
-            "sources": []
-        }
-        
     # 2. Construct context string
     context_list = []
     sources = []
-    for chunk in matching_chunks:
-        context_list.append(chunk.content)
-        sources.append({
-            "source_type": chunk.source_type,
-            "source_id": chunk.source_id,
-            "content": chunk.content[:150] + "..." # Truncate for summary reference
-        })
-        
-    context_str = "\n---\n".join(context_list)
+    if matching_chunks:
+        for chunk in matching_chunks:
+            context_list.append(chunk.content)
+            sources.append({
+                "source_type": chunk.source_type,
+                "source_id": chunk.source_id,
+                "content": chunk.content[:150] + "..." # Truncate for summary reference
+            })
+            
+    context_str = "\n---\n".join(context_list) if context_list else "No document context available."
     
     # 3. Check if Groq API key is valid / set up
     is_mock = (settings.GROQ_API_KEY == "your_groq_api_key_here" or not settings.GROQ_API_KEY)
@@ -136,13 +180,17 @@ def query_ai_brain(db: Session, workspace_id: str, question: str) -> Dict[str, A
     }
     system_prompt = (
         "You are SynapseIQ, the AI Knowledge Brain of this organization. "
+        "SynapseIQ is an advanced workspace collaboration platform. Features include: "
+        "Dashboard Analytics, Channel Chats (real-time messaging), Projects & Kanban (task tracking), "
+        "Document Storage (with pgvector AI indexing), and Intelligent Meetings (Jitsi video with AI transcription/summaries). "
         "Your task is to answer the user's question using ONLY the provided context. "
         "If you do not know the answer based on the context, state that you do not have enough information."
     )
-    user_prompt = f"Context:\n{context_str}\n\nQuestion: {question}\n\nAnswer:"
+    live_state_context = get_workspace_live_context(db, workspace_id)
+    user_prompt = f"Live Database Metrics:\n{live_state_context}\n\nDocument Context:\n{context_str}\n\nQuestion: {question}\n\nAnswer:"
     
     payload = {
-        "model": "llama3-8b-8192",
+        "model": "llama-3.1-8b-instant",
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}

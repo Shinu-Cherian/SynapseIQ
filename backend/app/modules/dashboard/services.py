@@ -61,11 +61,16 @@ def get_dashboard_data(db: Session, workspace_id: str) -> Dict[str, Any]:
             "is_overloaded": is_overloaded
         })
         
+    total_tasks = sum(p["todo_count"] + p["in_progress_count"] + p["in_review_count"] + p["done_count"] for p in projects_summary)
+    completed_tasks = sum(p["done_count"] for p in projects_summary)
+    
     return {
         "total_projects": total_projects,
         "total_members": total_members,
         "projects_summary": projects_summary,
-        "team_workload": team_workload
+        "team_workload": team_workload,
+        "total_tasks": total_tasks,
+        "completed_tasks": completed_tasks
     }
 
 def generate_weekly_status_report(db: Session, workspace_id: str) -> str:
@@ -117,7 +122,7 @@ def generate_weekly_status_report(db: Session, workspace_id: str) -> str:
     )
     
     payload = {
-        "model": "llama3-8b-8192",
+        "model": "llama-3.1-8b-instant",
         "messages": [
             {
                 "role": "system",

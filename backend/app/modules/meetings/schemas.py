@@ -13,11 +13,16 @@ class MeetingBase(BaseModel):
 class MeetingCreate(MeetingBase):
     pass
 
+class MeetingUpdate(BaseModel):
+    scheduled_at: datetime = Field(..., description="Scheduled date and time (ISO format)")
+
 # Output schema for meeting details
 class MeetingResponse(MeetingBase):
     id: int
     workspace_id: str
     creator_id: Optional[int] = None
+    status: str
+    jitsi_room_id: Optional[str] = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
