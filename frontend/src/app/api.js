@@ -1,4 +1,4 @@
-const BASE_URL = 'http://localhost:8000/api/v1'
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'
 
 const getHeaders = (isMultipart = false) => {
   const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null
@@ -222,7 +222,9 @@ export const api = {
       }),
       
     getWsUrl: (workspaceId, token) => {
-      return `ws://localhost:8000/api/v1/workspaces/${workspaceId}/channels/ws?token=${token}`
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'
+      const wsBaseUrl = baseUrl.replace(/^http/, 'ws')
+      return `${wsBaseUrl}/workspaces/${workspaceId}/channels/ws?token=${token}`
     },
     
     markRead: (workspaceId, channelId) =>

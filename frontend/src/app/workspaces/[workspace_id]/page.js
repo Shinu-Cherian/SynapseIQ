@@ -1221,9 +1221,9 @@ export default function WorkspaceHubPage() {
                           {msg.file_url && (
                             <div className={`mb-3 mt-1 ${isMe ? 'self-end' : 'self-start'}`}>
                               {msg.file_type?.startsWith('image/') ? (
-                                <img src={`http://localhost:8000${msg.file_url}`} alt={msg.file_name} className="max-w-xs max-h-64 object-cover border-2 border-black" />
+                                <img src={`${process.env.NEXT_PUBLIC_API_URL?.replace('/api/v1', '') || 'http://localhost:8000'}${msg.file_url}`} alt={msg.file_name} className="max-w-xs max-h-64 object-cover border-2 border-black" />
                               ) : (
-                                <a href={`http://localhost:8000${msg.file_url}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-xs font-bold hover:bg-black hover:text-white border-2 border-black bg-[var(--paper)] px-3 py-2 transition-colors">
+                                <a href={`${process.env.NEXT_PUBLIC_API_URL?.replace('/api/v1', '') || 'http://localhost:8000'}${msg.file_url}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-xs font-bold hover:bg-black hover:text-white border-2 border-black bg-[var(--paper)] px-3 py-2 transition-colors">
                                   📎 {msg.file_name}
                                 </a>
                               )}
