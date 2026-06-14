@@ -1,6 +1,9 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import JSONResponse
+import logging
 from app.core.config import settings
 from app.core.database import Base, engine
 from app.core.redis_client import redis_manager
@@ -58,13 +61,32 @@ app = FastAPI(
     debug=settings.DEBUG
 )
 
+# Add GZip Middleware for performance
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+# Global Exception Handler
+logger = logging.getLogger("uvicorn.error")
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request, exc: Exception):
+    logger.error(f"Global Exception: {exc}", exc_info=True)
+    if settings.ENVIRONMENT == "production":
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Internal Server Error"},
+        )
+    return JSONResponse(
+        status_code=500,
+        content={"detail": str(exc)},
+    )
+
 # Setup Rate Limiting
 setup_rate_limiting(app)
 
 # Set CORS middleware (essential for frontend communication)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Adjust for production (e.g. Next.js server origin)
+    allow_origins=[settings.FRONTEND_URL, "http://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

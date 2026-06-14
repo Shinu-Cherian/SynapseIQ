@@ -8,9 +8,13 @@ class Settings(BaseSettings):
     API_V1_STR: str = "/api/v1"
 
     # JWT Settings
-    JWT_SECRET: str = "supersecretjwtkeychangeinproduction1234567890"
+    JWT_SECRET: str = Field(..., description="JWT Secret Key. Must be provided in environment variables.")
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 11520
+
+    # Environment
+    ENVIRONMENT: str = "development"
+    FRONTEND_URL: str = "http://localhost:3000"
 
     # PostgreSQL Database Settings
     DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5432/synapseiq"

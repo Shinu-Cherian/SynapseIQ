@@ -15,7 +15,7 @@ spec:
       containers:
       - name: synapseiq-frontend
         image: synapseiq-frontend:latest
-        imagePullPolicy: Never
+        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3000
         env:

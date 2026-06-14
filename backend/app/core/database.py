@@ -7,7 +7,9 @@ from app.core.config import settings
 # pool_pre_ping=True helps handle stale connections automatically.
 engine = create_engine(
     settings.DATABASE_URL,
-    pool_pre_ping=True
+    pool_pre_ping=True,
+    pool_size=20,
+    max_overflow=10
 )
 
 # Create a sessionmaker factory.
