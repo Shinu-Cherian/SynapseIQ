@@ -1,15 +1,17 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.modules.auth import schemas, services
 from app.modules.auth.dependencies import get_current_user
 from app.modules.auth.models import User
 from app.core.security import create_access_token
+from app.core.rate_limit import limiter
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 @router.post("/signup", response_model=schemas.UserResponse, status_code=status.HTTP_201_CREATED)
-def signup(user_in: schemas.UserCreate, db: Session = Depends(get_db)):
+@limiter.limit("5/minute")
+def signup(request: Request, user_in: schemas.UserCreate, db: Session = Depends(get_db)):
     """
     Registers a new user account.
     """
@@ -22,7 +24,8 @@ def signup(user_in: schemas.UserCreate, db: Session = Depends(get_db)):
     return services.register_user(db, user_in=user_in)
 
 @router.post("/login", response_model=schemas.Token)
-def login(login_in: schemas.UserLogin, db: Session = Depends(get_db)):
+@limiter.limit("5/minute")
+def login(request: Request, login_in: schemas.UserLogin, db: Session = Depends(get_db)):
     """
     Authenticates user and returns JWT access token.
     """

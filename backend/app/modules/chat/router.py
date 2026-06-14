@@ -239,16 +239,14 @@ async def upload_message_file(
         if ext not in [".txt", ".csv"]:
             raise HTTPException(status_code=415, detail="Unable to verify file type, or file is not an allowed text type.")
 
-    # Reset file pointer if we need to save it via file object, or just write the bytes directly.
-    os.makedirs(STORAGE_DIR, exist_ok=True)
-    file_extension = os.path.splitext(file.filename)[1] if file.filename else ""
-    unique_filename = f"{uuid.uuid4()}{file_extension}"
-    destination_path = os.path.join(STORAGE_DIR, unique_filename)
-
-    with open(destination_path, "wb") as buffer:
-        buffer.write(file_bytes)
-
-    file_url = f"/api/v1/workspaces/{workspace_id}/channels/{channel_id}/messages/files/{unique_filename}"
+    # 4. Upload file to S3 (or local fallback)
+    from app.core.storage import storage_service
+    file_url = storage_service.upload_bytes(
+        file_bytes=file_bytes, 
+        filename=file.filename, 
+        content_type=file.content_type,
+        prefix="chat/"
+    )
     
     message = services.save_message(
         db,
@@ -323,7 +321,7 @@ async def websocket_chat_endpoint(
     await manager.connect(websocket, workspace_id, user_id)
     try:
         # Send initial list of online users to the newly connected client
-        online_users = manager.get_online_users(workspace_id)
+        online_users = await manager.get_online_users(workspace_id)
         await websocket.send_json({
             "type": "PRESENCE_SYNC",
             "online_users": online_users

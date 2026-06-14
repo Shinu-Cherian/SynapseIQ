@@ -1,5 +1,5 @@
 from typing import List
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.modules.auth.dependencies import get_current_user
@@ -7,6 +7,7 @@ from app.modules.auth.models import User
 from app.modules.workspace import schemas, services
 from app.modules.workspace.dependencies import RequireWorkspaceRole
 from app.modules.workspace.models import WorkspaceMember
+from app.core.rate_limit import limiter
 
 router = APIRouter(prefix="/workspaces", tags=["Workspaces"])
 
@@ -206,7 +207,9 @@ def remove_invitation(
     return {"message": "Invitation revoked successfully"}
 
 @router.get("/{workspace_id}/search")
+@limiter.limit("20/minute")
 def search_workspace(
+    request: Request,
     workspace_id: str,
     q: str,
     db: Session = Depends(get_db),
