@@ -308,6 +308,9 @@ async def websocket_chat_endpoint(
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
+    import urllib.parse
+    workspace_id = urllib.parse.unquote(workspace_id)
+    
     # 2. Verify workspace membership
     membership = db.query(WorkspaceMember).filter(
         WorkspaceMember.workspace_id == workspace_id,
