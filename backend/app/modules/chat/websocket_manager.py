@@ -16,7 +16,11 @@ class ConnectionManager:
     def __init__(self) -> None:
         # Key: workspace_id (str), Value: Dict of WebSocket -> user_id
         self.active_connections: Dict[str, Dict[WebSocket, int]] = {}
-        self.redis = redis.from_url(REDIS_URL)
+        # Upstash Redis requires ssl_cert_reqs="none" when using rediss://
+        if REDIS_URL.startswith("rediss://"):
+            self.redis = redis.from_url(REDIS_URL, ssl_cert_reqs="none")
+        else:
+            self.redis = redis.from_url(REDIS_URL)
         self.pubsub = self.redis.pubsub()
         self.listener_task = None
 
