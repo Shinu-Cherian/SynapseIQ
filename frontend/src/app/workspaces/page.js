@@ -127,8 +127,9 @@ export default function WorkspacesPage() {
                 required
                 placeholder="TECHNOVA-001"
                 value={newId}
-                onChange={(event) => setNewId(event.target.value)}
+                onChange={(event) => setNewId(event.target.value.replace(/\s/g, ''))}
               />
+              <span style={{ fontSize: '12px', color: '#666', marginTop: '4px', display: 'block' }}>Spaces are not allowed. Use hyphens instead (e.g. HIRETRACK-001).</span>
             </div>
 
             <div className="form-field">
