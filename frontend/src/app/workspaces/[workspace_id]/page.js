@@ -280,32 +280,30 @@ export default function WorkspaceHubPage() {
 
   const initWorkspace = async () => {
     try {
-      // 1. Fetch current user
-      const user = await api.auth.me()
+      // Parallelize core data fetching
+      const [user, wsDetails, members] = await Promise.all([
+        api.auth.me(),
+        api.workspaces.get(workspace_id),
+        api.workspaces.members(workspace_id)
+      ])
+      
       setCurrentUser(user)
-      
-      // 2. Fetch workspace details
-      const wsDetails = await api.workspaces.get(workspace_id)
       setWorkspace(wsDetails)
-      
-      // 3. Fetch notifications count
-      fetchNotifications()
-      
-      // 4. Fetch workspace members for assignees lists
-      const members = await api.workspaces.members(workspace_id)
       setWorkspaceMembers(members)
       setCurrentUserRole(members.find(m => m.user_id === user.id)?.role)
       
-      try {
-        const invs = await api.workspaces.invitations(workspace_id)
+      // Fire secondary requests in the background
+      fetchNotifications()
+      loadDashboardTab()
+      
+      api.meetings.list(workspace_id).then(setMeetings).catch(console.error)
+      
+      api.workspaces.invitations(workspace_id).then(invs => {
         setPendingInvitations(invs)
         const joinCode = btoa(workspace_id).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
         setInviteLink(`${window.location.origin}/join/${joinCode}`)
-      } catch (e) {}
+      }).catch(e => {})
       
-      // Load initial tab data
-      loadDashboardTab()
-      api.meetings.list(workspace_id).then(setMeetings).catch(console.error)
     } catch (err) {
       console.error(err)
       router.push('/workspaces')
@@ -405,13 +403,10 @@ export default function WorkspaceHubPage() {
     setSelectedChannel(channel)
     setReplyingTo(null)
     
-    // Mark as read immediately when opening
-    try {
-      await api.chat.markRead(workspace_id, channel.id)
-      setChannels(prev => prev.map(c => c.id === channel.id ? { ...c, unread_count: 0 } : c))
-    } catch (err) {
-      console.error('Failed to mark channel read', err)
-    }
+    // Mark as read immediately when opening (fire and forget to prevent UI blocking)
+    api.chat.markRead(workspace_id, channel.id)
+      .then(() => setChannels(prev => prev.map(c => c.id === channel.id ? { ...c, unread_count: 0 } : c)))
+      .catch(err => console.error('Failed to mark channel read', err))
     
     // Fetch message history
     try {
@@ -744,6 +739,15 @@ export default function WorkspaceHubPage() {
             parentNode: document.querySelector('#jitsi-container'),
             userInfo: {
                 displayName: currentUser?.full_name || 'SynapseIQ User'
+            },
+            configOverwrite: {
+                prejoinPageEnabled: false,
+                disableDeepLinking: true
+            },
+            interfaceConfigOverwrite: {
+                SHOW_PROMOTIONAL_CLOSE_PAGE: false,
+                SHOW_JITSI_WATERMARK: false,
+                SHOW_BRAND_WATERMARK: false
             }
         }
         jitsiApi = new window.JitsiMeetExternalAPI(domain, options)
@@ -1377,8 +1381,11 @@ export default function WorkspaceHubPage() {
                       if (currentUserRole === 'Owner' || currentUserRole === 'Admin') return true;
                       return m.role === 'Owner';
                     }).map(member => {
-                      // Find the DM channel for this member
-                      const dmChannel = channels.find(c => c.is_dm && (c.name === `DM: ${member.full_name}` || c.name === `DM: ${currentUser?.full_name}`));
+                      // Find the DM channel for this member using robust ID matching
+                      const dmChannel = channels.find(c => 
+                        c.is_dm && 
+                        (c.dm_user_1_id === member.user_id || c.dm_user_2_id === member.user_id)
+                      );
                       
                       const isTeamHead = member.role === 'Owner';
                       const displayName = isTeamHead ? `@ ${member.full_name} (Team Head)` : `@ ${member.full_name}`;
