@@ -199,82 +199,117 @@ export default function WorkspaceHubPage() {
     const token = localStorage.getItem('access_token')
     if (!token) return
 
-    const wsUrl = api.chat.getWsUrl(workspace_id, token)
-    const socket = new WebSocket(wsUrl)
-    
-    socket.onmessage = (event) => {
-      const data = JSON.parse(event.data)
-      
-      if (data.type === "PRESENCE_SYNC") {
-        setOnlineUsers(new Set(data.online_users))
-        return
-      }
-      
-      if (data.type === "USER_ONLINE") {
-        setOnlineUsers(prev => {
-          const next = new Set(prev)
-          next.add(data.user_id)
-          return next
-        })
-        return
-      }
-      
-      if (data.type === "USER_OFFLINE") {
-        setOnlineUsers(prev => {
-          const next = new Set(prev)
-          next.delete(data.user_id)
-          return next
-        })
-        return
-      }
+    let socket = null;
+    let pingInterval = null;
+    let reconnectTimer = null;
+    let isIntentionalClose = false;
 
-      if (data.type === "USER_TYPING") {
-        setTypingUsers(prev => ({
-          ...prev,
-          [data.channel_id]: {
-            ...prev[data.channel_id],
-            [data.user_id]: Date.now()
+    const connectWebSocket = () => {
+      const wsUrl = api.chat.getWsUrl(workspace_id, token)
+      socket = new WebSocket(wsUrl)
+      
+      socket.onopen = () => {
+        // Start ping interval to keep connection alive (prevent Render proxy timeout)
+        pingInterval = setInterval(() => {
+          if (socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({ type: 'PING' }))
           }
-        }))
-        return
+        }, 30000); // 30 seconds
       }
 
-      if (data.type === "MESSAGE_EDITED") {
-        const currentChannel = selectedChannelRef.current
-        if (currentChannel && currentChannel.id === data.channel_id) {
-          setMessages(prev => prev.map(m => m.id === data.message_id ? { ...m, content: data.content } : m))
+      socket.onmessage = (event) => {
+        const data = JSON.parse(event.data)
+        
+        if (data.type === "PRESENCE_SYNC") {
+          setOnlineUsers(new Set(data.online_users))
+          return
         }
-        return
-      }
-
-      if (data.type === "MESSAGE_DELETED") {
-        const currentChannel = selectedChannelRef.current
-        if (currentChannel && currentChannel.id === data.channel_id) {
-          setMessages(prev => prev.filter(m => m.id !== data.message_id))
+        
+        if (data.type === "USER_ONLINE") {
+          setOnlineUsers(prev => {
+            const next = new Set(prev)
+            next.add(data.user_id)
+            return next
+          })
+          return
         }
-        return
-      }
+        
+        if (data.type === "USER_OFFLINE") {
+          setOnlineUsers(prev => {
+            const next = new Set(prev)
+            next.delete(data.user_id)
+            return next
+          })
+          return
+        }
 
-      // Standard Chat Message
-      const newMsg = data
-      const currentChannel = selectedChannelRef.current
-      
-      if (currentChannel && currentChannel.id === newMsg.channel_id) {
-        setMessages(prev => [...prev, newMsg])
-        api.chat.markRead(workspace_id, currentChannel.id).catch(console.error)
-      } else {
-        setChannels(prev => prev.map(c => 
-          c.id === newMsg.channel_id ? { ...c, unread_count: (c.unread_count || 0) + 1 } : c
-        ))
+        if (data.type === "USER_TYPING") {
+          setTypingUsers(prev => ({
+            ...prev,
+            [data.channel_id]: {
+              ...prev[data.channel_id],
+              [data.user_id]: Date.now()
+            }
+          }))
+          return
+        }
+
+        if (data.type === "MESSAGE_EDITED") {
+          const currentChannel = selectedChannelRef.current
+          if (currentChannel && currentChannel.id === data.channel_id) {
+            setMessages(prev => prev.map(m => m.id === data.message_id ? { ...m, content: data.content } : m))
+          }
+          return
+        }
+
+        if (data.type === "MESSAGE_DELETED") {
+          const currentChannel = selectedChannelRef.current
+          if (currentChannel && currentChannel.id === data.channel_id) {
+            setMessages(prev => prev.filter(m => m.id !== data.message_id))
+          }
+          return
+        }
+
+        // Standard Chat Message
+        const newMsg = data
+        const currentChannel = selectedChannelRef.current
+        
+        if (currentChannel && currentChannel.id === newMsg.channel_id) {
+          setMessages(prev => {
+            // Prevent duplicate messages in UI
+            if (prev.some(m => m.id === newMsg.id)) return prev;
+            return [...prev, newMsg];
+          })
+          api.chat.markRead(workspace_id, currentChannel.id).catch(console.error)
+        } else {
+          setChannels(prev => prev.map(c => 
+            c.id === newMsg.channel_id ? { ...c, unread_count: (c.unread_count || 0) + 1 } : c
+          ))
+        }
+        
+        fetchNotifications()
       }
       
-      fetchNotifications()
+      socket.onclose = () => {
+        clearInterval(pingInterval);
+        if (!isIntentionalClose) {
+          // Auto-reconnect after 3 seconds
+          reconnectTimer = setTimeout(() => {
+            connectWebSocket();
+          }, 3000);
+        }
+      }
+      
+      socketRef.current = socket
     }
-    
-    socketRef.current = socket
+
+    connectWebSocket();
     
     return () => {
-      socket.close()
+      isIntentionalClose = true;
+      clearInterval(pingInterval);
+      clearTimeout(reconnectTimer);
+      if (socket) socket.close();
     }
   }, [workspace_id])
 
@@ -420,6 +455,12 @@ export default function WorkspaceHubPage() {
   const handleSendChat = async () => {
     if ((!chatInput.trim() && !chatAttachment) || !socketRef.current) return
     
+    // Safety check: if socket is closed or connecting, prevent sending
+    if (socketRef.current.readyState !== WebSocket.OPEN) {
+      alert("Chat connection lost. Reconnecting... Please wait a moment and try again.");
+      return;
+    }
+
     if (chatAttachment) {
       const formData = new FormData()
       if (chatInput.trim()) formData.append('content', chatInput)
