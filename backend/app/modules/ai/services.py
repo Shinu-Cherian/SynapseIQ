@@ -104,6 +104,10 @@ def get_workspace_live_context(db: Session, workspace_id: str) -> str:
     # 2. Task info
     projects = db.query(Project).filter(Project.workspace_id == workspace_id).all()
     project_ids = [p.id for p in projects]
+    project_names = [p.name for p in projects]
+    projects_str = ", ".join(project_names) if project_names else "None"
+    total_projects = len(projects)
+    
     tasks = db.query(ProjectTask).filter(ProjectTask.project_id.in_(project_ids)).all() if project_ids else []
     
     todo_count = sum(1 for t in tasks if t.status == "To Do")
@@ -129,6 +133,7 @@ def get_workspace_live_context(db: Session, workspace_id: str) -> str:
         f"--- LIVE WORKSPACE STATE ---\n"
         f"Total Team Members: {total_members}\n"
         f"Team Heads / Admins: {heads_str}\n"
+        f"Total Projects Created: {total_projects} ({projects_str})\n"
         f"Project Tasks State: {todo_count} To Do, {in_progress_count} In Progress, {review_count} In Review, {done_count} Done.\n"
         f"Detailed Task Assignments:\n{task_details if task_details else 'No tasks assigned yet.'}\n"
         f"Recent Meetings:\n{meetings_context if recent_meetings else 'No recent meetings.'}\n"
