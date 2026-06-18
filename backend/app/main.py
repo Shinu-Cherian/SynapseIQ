@@ -132,7 +132,7 @@ async def health_redis():
     except Exception as e:
         return {"status": "error", "error_type": type(e).__name__, "message": str(e)}
 
-@app.get("/api/v1/health")
+@app.get("/healthz")
 def health_check():
     redis_status = "healthy" if redis_manager.client and redis_manager.client.ping() else "unhealthy"
     return {
