@@ -55,14 +55,17 @@ class ConnectionManager:
             self.listener_task = asyncio.create_task(self.start_listener())
             
         # Track global connection count in Redis
-        conn_count = await self.redis.hincrby(f"user_connections_{workspace_id}", str(user_id), 1)
-        
-        # If this is their first connection globally, broadcast USER_ONLINE
-        if conn_count == 1:
-            await self.broadcast_to_workspace({
-                "type": "USER_ONLINE",
-                "user_id": user_id
-            }, workspace_id)
+        try:
+            conn_count = await self.redis.hincrby(f"user_connections_{workspace_id}", str(user_id), 1)
+            
+            # If this is their first connection globally, broadcast USER_ONLINE
+            if conn_count == 1:
+                await self.broadcast_to_workspace({
+                    "type": "USER_ONLINE",
+                    "user_id": user_id
+                }, workspace_id)
+        except Exception as e:
+            print(f"Redis connect error: {e}")
 
     async def disconnect(self, websocket: WebSocket, workspace_id: str) -> None:
         """
@@ -75,15 +78,18 @@ class ConnectionManager:
                 del self.active_connections[workspace_id][websocket]
                 
                 # Decrement global connection count in Redis
-                conn_count = await self.redis.hincrby(f"user_connections_{workspace_id}", str(user_id), -1)
-                
-                # Broadcast offline only if all their global connections are closed
-                if conn_count <= 0:
-                    await self.redis.hdel(f"user_connections_{workspace_id}", str(user_id))
-                    await self.broadcast_to_workspace({
-                        "type": "USER_OFFLINE",
-                        "user_id": user_id
-                    }, workspace_id)
+                try:
+                    conn_count = await self.redis.hincrby(f"user_connections_{workspace_id}", str(user_id), -1)
+                    
+                    # Broadcast offline only if all their global connections are closed
+                    if conn_count <= 0:
+                        await self.redis.hdel(f"user_connections_{workspace_id}", str(user_id))
+                        await self.broadcast_to_workspace({
+                            "type": "USER_OFFLINE",
+                            "user_id": user_id
+                        }, workspace_id)
+                except Exception as e:
+                    print(f"Redis disconnect error: {e}")
                     
             # Cleanup local workspace dictionary key if no users are connected to this worker
             if not self.active_connections[workspace_id]:
@@ -93,14 +99,21 @@ class ConnectionManager:
         """
         Publishes a JSON payload to Redis so all workers can broadcast it to active connections.
         """
-        await self.redis.publish(f"workspace_{workspace_id}", json.dumps(message))
+        try:
+            await self.redis.publish(f"workspace_{workspace_id}", json.dumps(message))
+        except Exception as e:
+            print(f"Redis publish error: {e}")
 
     async def get_online_users(self, workspace_id: str) -> List[int]:
         """
         Returns a list of unique user IDs currently connected to the workspace globally.
         """
-        active_users_map = await self.redis.hgetall(f"user_connections_{workspace_id}")
-        return [int(uid) for uid, count in active_users_map.items() if int(count) > 0]
+        try:
+            active_users_map = await self.redis.hgetall(f"user_connections_{workspace_id}")
+            return [int(uid) for uid, count in active_users_map.items() if int(count) > 0]
+        except Exception as e:
+            print(f"Redis get_online_users error: {e}")
+            return []
 
 # Global instance of Connection Manager
 manager = ConnectionManager()
