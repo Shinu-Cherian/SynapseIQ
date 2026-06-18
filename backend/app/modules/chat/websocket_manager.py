@@ -98,9 +98,19 @@ class ConnectionManager:
     async def broadcast_to_workspace(self, message: dict, workspace_id: str) -> None:
         """
         Publishes a JSON payload to Redis so all workers can broadcast it to active connections.
+        Also sends it immediately to local connections for zero latency.
         """
+        # 1. Send locally immediately (Zero latency)
+        if workspace_id in self.active_connections:
+            for connection in list(self.active_connections[workspace_id].keys()):
+                try:
+                    await connection.send_json(message)
+                except Exception:
+                    pass
+                    
+        # 2. Publish to Redis in the background so it doesn't block if Redis is slow
         try:
-            await self.redis.publish(f"workspace_{workspace_id}", json.dumps(message))
+            asyncio.create_task(self.redis.publish(f"workspace_{workspace_id}", json.dumps(message)))
         except Exception as e:
             print(f"Redis publish error: {e}")
 
