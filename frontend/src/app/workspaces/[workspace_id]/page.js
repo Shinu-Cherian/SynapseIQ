@@ -533,6 +533,21 @@ export default function WorkspaceHubPage() {
     }
   }
 
+  const handleDeleteProject = async (projectId) => {
+    if (!confirm("Are you sure you want to delete this project? All tasks inside will be permanently deleted!")) return;
+    try {
+      await api.projects.delete(workspace_id, projectId);
+      setProjects(prev => prev.filter(p => p.id !== projectId));
+      if (selectedProject?.id === projectId) {
+        setSelectedProject(null);
+        setTasks([]);
+      }
+    } catch (err) {
+      console.error(err);
+      alert(err.message || "Failed to delete project");
+    }
+  }
+
   const handleInviteMember = async (e) => {
     e.preventDefault()
     
@@ -1470,7 +1485,17 @@ export default function WorkspaceHubPage() {
                 <div>
                   <h2 className="text-4xl font-space font-bold border-b-4 border-black pb-4">Sprint Manager</h2>
                   {selectedProject && (
-                    <span className="text-sm font-bold uppercase tracking-wider mt-4 inline-block bg-[var(--gold)] border-2 border-black px-3 py-1 shadow-[2px_2px_0_#1a1a1a]">Active Project: {selectedProject.name}</span>
+                    <div className="flex items-center gap-4 mt-4">
+                      <span className="text-sm font-bold uppercase tracking-wider inline-block bg-[var(--gold)] border-2 border-black px-3 py-1 shadow-[2px_2px_0_#1a1a1a]">Active Project: {selectedProject.name}</span>
+                      {(currentUserRole === 'Owner' || currentUserRole === 'Admin') && (
+                        <button 
+                          onClick={() => handleDeleteProject(selectedProject.id)}
+                          className="px-3 py-1 bg-[#ff4a4a] text-white border-2 border-black text-xs font-bold uppercase tracking-wider hover:-translate-y-0.5 hover:shadow-[2px_2px_0_#1a1a1a] transition-all"
+                        >
+                          Delete Project
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
 
@@ -1514,6 +1539,53 @@ export default function WorkspaceHubPage() {
                   </button>
                 ))}
               </div>
+
+              {/* Task Add Form */}
+              {(currentUserRole === 'Owner' || currentUserRole === 'Admin') && selectedProject && (
+                <form onSubmit={handleCreateTask} className="p-8 bg-[var(--paper-lift)] border-2 border-black shadow-[8px_8px_0_#1a1a1a] flex flex-col lg:flex-row gap-6 items-end mb-6">
+                  <div className="flex-grow flex flex-col gap-2 w-full">
+                    <span className="text-[10px] font-bold uppercase tracking-widest">Add Task to {selectedProject.name}</span>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Task title..."
+                      value={newTaskTitle}
+                      onChange={(e) => setNewTaskTitle(e.target.value)}
+                      className="w-full px-4 py-3 bg-white border-2 border-black text-sm font-bold focus:outline-none"
+                    />
+                  </div>
+                  <div className="flex-grow flex flex-col gap-2 w-full">
+                    <span className="text-[10px] font-bold uppercase tracking-widest">Task description</span>
+                    <input
+                      type="text"
+                      placeholder="Write brief description..."
+                      value={newTaskDesc}
+                      onChange={(e) => setNewTaskDesc(e.target.value)}
+                      className="w-full px-4 py-3 bg-white border-2 border-black text-sm font-bold focus:outline-none"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-2 w-full lg:w-auto">
+                    <span className="text-[10px] font-bold uppercase tracking-widest">Assignee</span>
+                    <select
+                      value={newTaskAssignee}
+                      onChange={(e) => setNewTaskAssignee(e.target.value)}
+                      className="w-full lg:w-48 px-4 py-3 bg-white border-2 border-black text-sm font-bold focus:outline-none cursor-pointer"
+                    >
+                      <option value="">Unassigned</option>
+                      <option value="all">All Members</option>
+                      {workspaceMembers.map(m => (
+                        <option key={m.user_id} value={m.user_id}>{m.full_name} ({m.role})</option>
+                      ))}
+                    </select>
+                  </div>
+                  <button
+                    type="submit"
+                    className="w-full lg:w-auto px-8 py-3 bg-black text-white border-2 border-black font-bold uppercase tracking-wider text-sm hover:-translate-y-0.5 hover:shadow-[4px_4px_0_var(--gold)] transition-all whitespace-nowrap"
+                  >
+                    + Add Task
+                  </button>
+                </form>
+              )}
 
               {/* Kanban board layout */}
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 flex-grow">
@@ -1577,52 +1649,7 @@ export default function WorkspaceHubPage() {
                 })}
               </div>
 
-              {/* Task Add Form */}
-              {(currentUserRole === 'Owner' || currentUserRole === 'Admin') && selectedProject && (
-                <form onSubmit={handleCreateTask} className="p-8 bg-[var(--paper-lift)] border-2 border-black shadow-[8px_8px_0_#1a1a1a] flex flex-col lg:flex-row gap-6 items-end mt-4">
-                  <div className="flex-grow flex flex-col gap-2 w-full">
-                    <span className="text-[10px] font-bold uppercase tracking-widest">Add Task to {selectedProject.name}</span>
-                    <input
-                      type="text"
-                      required
-                      placeholder="Task title..."
-                      value={newTaskTitle}
-                      onChange={(e) => setNewTaskTitle(e.target.value)}
-                      className="w-full px-4 py-3 bg-white border-2 border-black text-sm font-bold focus:outline-none"
-                    />
-                  </div>
-                  <div className="flex-grow flex flex-col gap-2 w-full">
-                    <span className="text-[10px] font-bold uppercase tracking-widest">Task description</span>
-                    <input
-                      type="text"
-                      placeholder="Write brief description..."
-                      value={newTaskDesc}
-                      onChange={(e) => setNewTaskDesc(e.target.value)}
-                      className="w-full px-4 py-3 bg-white border-2 border-black text-sm font-bold focus:outline-none"
-                    />
-                  </div>
-                  <div className="flex flex-col gap-2 w-full lg:w-auto">
-                    <span className="text-[10px] font-bold uppercase tracking-widest">Assignee</span>
-                    <select
-                      value={newTaskAssignee}
-                      onChange={(e) => setNewTaskAssignee(e.target.value)}
-                      className="w-full lg:w-48 px-4 py-3 bg-white border-2 border-black text-sm font-bold focus:outline-none cursor-pointer"
-                    >
-                      <option value="">Unassigned</option>
-                      <option value="all">All Members</option>
-                      {workspaceMembers.map(m => (
-                        <option key={m.user_id} value={m.user_id}>{m.full_name} ({m.role})</option>
-                      ))}
-                    </select>
-                  </div>
-                  <button
-                    type="submit"
-                    className="w-full lg:w-auto px-8 py-3 bg-black text-white border-2 border-black font-bold uppercase tracking-wider text-sm hover:-translate-y-0.5 hover:shadow-[4px_4px_0_var(--gold)] transition-all whitespace-nowrap"
-                  >
-                    + Add Task
-                  </button>
-                </form>
-              )}
+
             </div>
           )}
 

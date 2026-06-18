@@ -35,6 +35,28 @@ def get_projects(
     """
     return services.get_workspace_projects(db, workspace_id=workspace_id)
 
+@router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_project(
+    workspace_id: str,
+    project_id: int,
+    db: Session = Depends(get_db),
+    # Guard: Only Owners or Admins can delete projects
+    current_member: WorkspaceMember = Depends(RequireWorkspaceRole(["Owner", "Admin"]))
+):
+    """
+    Deletes a project from the workspace.
+    Requires 'Owner' or 'Admin' role.
+    """
+    # Verify project belongs to workspace
+    project = services.get_project_by_id(db, project_id)
+    if not project or project.workspace_id != workspace_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found in this workspace"
+        )
+    services.delete_project(db, project_id)
+    return None
+
 @router.post("/{project_id}/assign", response_model=schemas.ProjectMemberResponse)
 def assign_member(
     workspace_id: str,

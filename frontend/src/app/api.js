@@ -151,6 +151,12 @@ export const api = {
         body: JSON.stringify({ name, description })
       }).then(handleResponse),
       
+    delete: (workspaceId, projectId) =>
+      fetch(`${BASE_URL}/workspaces/${workspaceId}/projects/${projectId}`, {
+        method: 'DELETE',
+        headers: getHeaders()
+      }).then(handleResponse),
+      
     tasks: (workspaceId, projectId) => 
       fetch(`${BASE_URL}/workspaces/${workspaceId}/projects/${projectId}/tasks`, {
         method: 'GET',

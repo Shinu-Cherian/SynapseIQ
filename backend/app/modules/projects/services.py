@@ -33,6 +33,15 @@ def get_project_by_id(db: Session, project_id: int) -> Optional[Project]:
     """
     return db.query(Project).filter(Project.id == project_id).first()
 
+def delete_project(db: Session, project_id: int) -> None:
+    """
+    Deletes a project by ID.
+    """
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if project:
+        db.delete(project)
+        db.commit()
+
 def assign_member_to_project(
     db: Session, 
     workspace_id: str,
