@@ -113,7 +113,26 @@ def read_root():
     }
 
 # API Status check endpoint
-@app.get("/healthz")
+@app.get("/api/v1/health/redis")
+async def health_redis():
+    """Diagnostic endpoint to test Redis connectivity"""
+    import os
+    import redis.asyncio as redis
+    redis_url = os.getenv("REDIS_URL", "")
+    is_rediss = redis_url.startswith("rediss://")
+    
+    try:
+        if is_rediss:
+            r = redis.from_url(redis_url, ssl_cert_reqs="none")
+        else:
+            r = redis.from_url(redis_url)
+        
+        await r.ping()
+        return {"status": "success", "message": "Connected to Redis successfully!"}
+    except Exception as e:
+        return {"status": "error", "error_type": type(e).__name__, "message": str(e)}
+
+@app.get("/api/v1/health")
 def health_check():
     redis_status = "healthy" if redis_manager.client and redis_manager.client.ping() else "unhealthy"
     return {
