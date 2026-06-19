@@ -14,6 +14,7 @@ export default function WorkspaceHubPage() {
   const [activeTab, setActiveTab] = useState('dashboard')
   const [currentUser, setCurrentUser] = useState(null)
   const [currentUserRole, setCurrentUserRole] = useState(null)
+  const [currentUserStatus, setCurrentUserStatus] = useState(null)
   const [workspace, setWorkspace] = useState(null)
   const [loading, setLoading] = useState(true)
   const [notifications, setNotifications] = useState([])
@@ -46,12 +47,10 @@ export default function WorkspaceHubPage() {
   const [newTaskDesc, setNewTaskDesc] = useState('')
   const [newTaskAssignee, setNewTaskAssignee] = useState('')
   const [workspaceMembers, setWorkspaceMembers] = useState([])
-  const [invites, setInvites] = useState([{ email: '', role: 'Member' }])
-  const [inviteLoading, setInviteLoading] = useState(false)
-  const [inviteMessage, setInviteMessage] = useState('')
-  const [inviteLink, setInviteLink] = useState('')
-  const [showInviteLink, setShowInviteLink] = useState(false)
-  const [pendingInvitations, setPendingInvitations] = useState([])
+  const [addMemberData, setAddMemberData] = useState({ fullName: '', email: '', role: 'Member' })
+  const [addMemberLoading, setAddMemberLoading] = useState(false)
+  const [addMemberMessage, setAddMemberMessage] = useState('')
+  const [generatedPassword, setGeneratedPassword] = useState('')
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 
   // 4. Documents State
@@ -270,6 +269,21 @@ export default function WorkspaceHubPage() {
           return
         }
 
+        if (data.type === "WORKSPACE_UPDATE") {
+          api.workspaces.members(workspace_id).then(members => {
+            setWorkspaceMembers(members)
+            // If the current user status changed, update it so they see the right screen
+            api.auth.me().then(user => {
+              const myMemberRecord = members.find(m => m.user_id === user.id)
+              if (myMemberRecord) {
+                setCurrentUserStatus(myMemberRecord.status)
+                setCurrentUserRole(myMemberRecord.role)
+              }
+            }).catch(console.error)
+          }).catch(console.error)
+          return
+        }
+
         // Standard Chat Message
         const newMsg = data
         const currentChannel = selectedChannelRef.current
@@ -325,7 +339,9 @@ export default function WorkspaceHubPage() {
       setCurrentUser(user)
       setWorkspace(wsDetails)
       setWorkspaceMembers(members)
-      setCurrentUserRole(members.find(m => m.user_id === user.id)?.role)
+      const myMemberRecord = members.find(m => m.user_id === user.id)
+      setCurrentUserRole(myMemberRecord?.role)
+      setCurrentUserStatus(myMemberRecord?.status)
       
       // Fire secondary requests in the background
       fetchNotifications()
@@ -347,7 +363,7 @@ export default function WorkspaceHubPage() {
     }
   }
 
-  const fetchNotifications = async () => {
+  async function fetchNotifications() {
     try {
       const list = await api.notifications.list(workspace_id)
       setNotifications(list)
@@ -548,56 +564,42 @@ export default function WorkspaceHubPage() {
     }
   }
 
-  const handleInviteMember = async (e) => {
+  const handleAddMemberDirect = async (e) => {
     e.preventDefault()
     
-    // Filter out completely empty rows
-    const validInvites = invites.filter(inv => inv.email.trim() !== '')
-    if (validInvites.length === 0) return
+    if (!addMemberData.email.trim() || !addMemberData.fullName.trim()) return
 
-    setInviteLoading(true)
-    setInviteMessage('')
+    setAddMemberLoading(true)
+    setAddMemberMessage('')
+    setGeneratedPassword('')
 
-    let successCount = 0
-    let errors = []
-
-    for (const inv of validInvites) {
-      try {
-        await api.workspaces.invite(workspace_id, inv.email.trim(), inv.role)
-        successCount++
-      } catch (err) {
-        errors.push(`${inv.email}: ${err.message || 'Error'}`)
-      }
-    }
-
-    if (errors.length > 0) {
-      setInviteMessage(`Processed ${successCount} emails. Errors: ${errors.join(', ')}`)
-    } else {
-      setInviteMessage(`Successfully whitelisted ${successCount} email(s)!`)
-      setInvites([{ email: '', role: 'Member' }])
-    }
-    
-    if (successCount > 0) {
-      try {
-        const invs = await api.workspaces.invitations(workspace_id)
-        setPendingInvitations(invs)
-      } catch (e) {}
-    }
-    
     try {
+      const res = await api.workspaces.addDirect(
+        workspace_id, 
+        addMemberData.fullName.trim(), 
+        addMemberData.email.trim(), 
+        addMemberData.role
+      )
+      setAddMemberMessage(`Successfully added! Please share the generated password with the user.`)
+      setGeneratedPassword(res.generated_password)
+      setAddMemberData({ fullName: '', email: '', role: 'Member' })
+      
       const members = await api.workspaces.members(workspace_id)
       setWorkspaceMembers(members)
-    } catch(err) {}
+    } catch (err) {
+      setAddMemberMessage(`Error: ${err.message || 'Failed to add member'}`)
+    }
 
-    setInviteLoading(false)
+    setAddMemberLoading(false)
   }
 
-  const handleDeleteInvitation = async (invitationId) => {
+  const handleApproveMember = async (userId) => {
     try {
-      await api.workspaces.deleteInvitation(workspace_id, invitationId)
-      setPendingInvitations(pendingInvitations.filter(inv => inv.id !== invitationId))
+      await api.workspaces.approveMember(workspace_id, userId)
+      const members = await api.workspaces.members(workspace_id)
+      setWorkspaceMembers(members)
     } catch (err) {
-      alert(err.message)
+      alert(err.message || "Failed to approve member")
     }
   }
 
@@ -863,6 +865,33 @@ export default function WorkspaceHubPage() {
     )
   }
 
+  if (currentUserStatus === 'Pending Approval') {
+    return (
+      <div className="min-h-screen bg-[var(--paper)] text-[#1a1a1a] flex flex-col items-center justify-center font-inter p-8">
+        <div className="bg-white border-4 border-black p-10 max-w-lg w-full text-center shadow-[16px_16px_0_#1a1a1a]">
+          <div className="w-16 h-16 bg-[var(--gold)] border-4 border-black mx-auto rounded-full flex items-center justify-center mb-6">
+            <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+            </svg>
+          </div>
+          <h1 className="text-3xl font-space font-bold uppercase tracking-widest mb-4">Pending Approval</h1>
+          <p className="text-sm font-medium mb-8">
+            You have successfully logged in, but you are waiting for a Team Head to approve your access to <b>{workspace?.name}</b>.
+            <br/><br/>
+            Please wait or contact your administrator.
+          </p>
+          <button 
+            onClick={() => router.push('/workspaces')}
+            className="px-6 py-3 bg-black text-white font-bold text-sm uppercase tracking-wider hover:bg-gray-800 transition-colors"
+          >
+            Go Back
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-[var(--paper)] flex flex-col font-inter text-[#1a1a1a]">
       {/* Top Header Bar */}
@@ -999,101 +1028,99 @@ export default function WorkspaceHubPage() {
                 <div className="p-8 bg-white border-2 border-black shadow-[8px_8px_0_#1a1a1a]">
                 <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-8">
                   <div className="max-w-md pt-2">
-                    <h3 className="font-bold text-2xl font-space mb-2">Whitelist Team Members</h3>
+                    <h3 className="font-bold text-2xl font-space mb-2">Add Team Member</h3>
                     <p className="text-sm font-medium">
-                      Add company emails, choose roles, and generate a secure join link for your team.
+                      Add a new team member and instantly generate a secure 6-character password for them.
                     </p>
                   </div>
 
                   <div className="flex flex-col w-full lg:w-auto gap-4">
-                    {invites.map((inv, idx) => (
-                      <div key={idx} className="flex flex-col md:flex-row gap-4 md:items-end w-full">
-                        <div className="flex flex-col gap-2 flex-grow">
-                          {idx === 0 && <label className="text-xs font-bold uppercase tracking-wider">Company Email</label>}
-                          <input
-                            type="email"
-                            required
-                            placeholder="teammate@company.com"
-                            value={inv.email}
-                            onChange={(e) => {
-                              const newInvites = [...invites];
-                              newInvites[idx].email = e.target.value;
-                              setInvites(newInvites);
-                            }}
-                            className="w-full px-4 py-3 bg-[var(--paper)] border-2 border-black text-sm font-medium focus:outline-none focus:bg-white transition-colors"
-                          />
-                        </div>
-                        <div className="flex flex-col gap-2">
-                          {idx === 0 && <label className="text-xs font-bold uppercase tracking-wider">Role</label>}
-                          <div className="flex gap-2">
-                            <select
-                              value={inv.role}
-                              onChange={(e) => {
-                                const newInvites = [...invites];
-                                newInvites[idx].role = e.target.value;
-                                setInvites(newInvites);
-                              }}
-                              className="px-4 py-3 bg-[var(--paper)] border-2 border-black text-sm font-bold focus:outline-none cursor-pointer"
-                            >
-                              <option value="Member">Member</option>
-                              <option value="Admin">Admin</option>
-                            </select>
-                            {idx === 0 ? (
-                              <button
-                                type="button"
-                                onClick={() => setInvites([...invites, { email: '', role: 'Member' }])}
-                                className="px-4 py-3 bg-white border-2 border-black text-black font-black hover:-translate-y-0.5 hover:shadow-[4px_4px_0_#1a1a1a] transition-all"
-                                title="Add another invite"
-                              >
-                                +
-                              </button>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => setInvites(invites.filter((_, i) => i !== idx))}
-                                className="px-4 py-3 bg-white border-2 border-black hover:bg-red-50 hover:text-red-600 font-bold transition-colors"
-                                title="Remove row"
-                              >
-                                ✕
-                              </button>
-                            )}
-                          </div>
-                        </div>
+                    <div className="flex flex-col md:flex-row gap-4 md:items-end w-full">
+                      <div className="flex flex-col gap-2 flex-grow">
+                        <label className="text-xs font-bold uppercase tracking-wider">Full Name</label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="John Doe"
+                          value={addMemberData.fullName}
+                          onChange={(e) => setAddMemberData({...addMemberData, fullName: e.target.value})}
+                          className="w-full px-4 py-3 bg-[var(--paper)] border-2 border-black text-sm font-medium focus:outline-none focus:bg-white transition-colors"
+                        />
                       </div>
-                    ))}
+                      <div className="flex flex-col gap-2 flex-grow">
+                        <label className="text-xs font-bold uppercase tracking-wider">Company Email</label>
+                        <input
+                          type="email"
+                          required
+                          placeholder="teammate@company.com"
+                          value={addMemberData.email}
+                          onChange={(e) => setAddMemberData({...addMemberData, email: e.target.value})}
+                          className="w-full px-4 py-3 bg-[var(--paper)] border-2 border-black text-sm font-medium focus:outline-none focus:bg-white transition-colors"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-2">
+                        <label className="text-xs font-bold uppercase tracking-wider">Role</label>
+                        <select
+                          value={addMemberData.role}
+                          onChange={(e) => setAddMemberData({...addMemberData, role: e.target.value})}
+                          className="px-4 py-3 bg-[var(--paper)] border-2 border-black text-sm font-bold focus:outline-none cursor-pointer"
+                        >
+                          <option value="Member">Member</option>
+                          <option value="Admin">Admin</option>
+                        </select>
+                      </div>
+                    </div>
                     
                     <div className="flex justify-end mt-2">
                       <button
                         type="button"
-                        onClick={handleInviteMember}
-                        disabled={inviteLoading}
+                        onClick={handleAddMemberDirect}
+                        disabled={addMemberLoading}
                         className="px-6 py-3 bg-[var(--gold)] border-2 border-black text-black font-bold text-sm uppercase tracking-wider hover:-translate-y-0.5 hover:shadow-[4px_4px_0_#1a1a1a] transition-all whitespace-nowrap"
                       >
-                        {inviteLoading ? 'Processing...' : 'Authorize Members'}
+                        {addMemberLoading ? 'Processing...' : 'Add Member & Generate Password'}
                       </button>
                     </div>
                   </div>
                 </div>
 
-                {inviteMessage && (
-                  <p className="text-sm font-bold mt-6 bg-[var(--paper-lift)] border-2 border-black p-3 inline-block">{inviteMessage}</p>
+                {addMemberMessage && (
+                  <div className="mt-6 p-4 bg-[var(--paper-lift)] border-2 border-black shadow-[4px_4px_0_#1a1a1a]">
+                    <p className="text-sm font-bold">{addMemberMessage}</p>
+                    {generatedPassword && (
+                      <div className="mt-4 p-4 bg-white border-2 border-black flex flex-col gap-2">
+                        <span className="text-xs font-bold uppercase tracking-wider text-black/60">Generated Password</span>
+                        <div className="flex justify-between items-center">
+                          <span className="font-space text-2xl tracking-widest font-bold text-[var(--danger)]">{generatedPassword}</span>
+                          <button 
+                            onClick={() => navigator.clipboard.writeText(generatedPassword)}
+                            className="px-4 py-2 bg-black text-white text-xs font-bold uppercase tracking-wider hover:bg-gray-800"
+                          >
+                            Copy Password
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 )}
 
-                {pendingInvitations.length > 0 && (
+                {/* Pending Approvals Section */}
+                {workspaceMembers.filter(m => m.status === 'Pending Approval').length > 0 && (
                   <div className="mt-8">
-                    <h4 className="text-sm font-bold uppercase tracking-widest border-b-2 border-black pb-2 mb-4">Pending Invitations</h4>
+                    <h4 className="text-sm font-bold uppercase tracking-widest border-b-2 border-black pb-2 mb-4">Pending Approvals</h4>
                     <div className="flex flex-col gap-2">
-                      {pendingInvitations.map(inv => (
-                        <div key={inv.id} className="flex justify-between items-center p-4 bg-white border-2 border-black shadow-[4px_4px_0_#1a1a1a]">
-                          <div>
-                            <p className="font-bold">{inv.email}</p>
-                            <p className="text-xs uppercase tracking-wider text-yellow-600 font-bold">Pending • {inv.role}</p>
+                      {workspaceMembers.filter(m => m.status === 'Pending Approval').map(member => (
+                        <div key={member.id} className="flex justify-between items-center p-4 bg-[var(--paper-lift)] border-2 border-black shadow-[4px_4px_0_#1a1a1a]">
+                          <div className="flex flex-col gap-0.5">
+                            <p className="font-bold text-sm">{member.full_name}</p>
+                            <p className="font-medium text-black/60 text-xs">{member.email}</p>
+                            <p className="text-[10px] uppercase tracking-wider text-yellow-600 font-bold mt-1">Pending Approval • {member.role}</p>
                           </div>
                           <button 
-                            onClick={() => handleDeleteInvitation(inv.id)}
-                            className="px-4 py-2 bg-black text-white text-xs font-bold uppercase tracking-wider hover:bg-red-600 transition-colors"
+                            onClick={() => handleApproveMember(member.user_id)}
+                            className="px-4 py-2 bg-[var(--gold)] border-2 border-black text-black text-xs font-bold uppercase tracking-wider hover:-translate-y-0.5 hover:shadow-[2px_2px_0_#1a1a1a] transition-all"
                           >
-                            Revoke Invite
+                            Approve Access
                           </button>
                         </div>
                       ))}
@@ -1101,11 +1128,12 @@ export default function WorkspaceHubPage() {
                   </div>
                 )}
 
-                {workspaceMembers.length > 0 && (
+                {/* Active Members Section */}
+                {workspaceMembers.filter(m => m.status === 'Active').length > 0 && (
                   <div className="mt-8">
                     <h4 className="text-sm font-bold uppercase tracking-widest border-b-2 border-black pb-2 mb-4">Active Team Members</h4>
                     <div className="flex flex-col gap-2">
-                      {workspaceMembers.map(member => (
+                      {workspaceMembers.filter(m => m.status === 'Active').map(member => (
                         <div key={member.id} className="flex justify-between items-center p-4 bg-white border-2 border-black shadow-[4px_4px_0_#1a1a1a]">
                           <div className="flex flex-col gap-0.5">
                             <p className="font-bold text-sm flex items-center">
@@ -1129,49 +1157,6 @@ export default function WorkspaceHubPage() {
                           )}
                         </div>
                       ))}
-                    </div>
-                  </div>
-                )}
-
-                {inviteLink && (
-                  <div className="mt-8 p-6 bg-[var(--gold)] border-2 border-black shadow-[4px_4px_0_#1a1a1a]">
-                    <p className="text-sm font-bold uppercase tracking-widest mb-2 text-black">Universal Join Link</p>
-                    <p className="text-xs mb-4 font-medium">Copy this link and share it with your team. Only whitelisted emails can join.</p>
-                    <div className="flex flex-col sm:flex-row gap-2">
-                      <div className="relative flex-grow">
-                        <input 
-                          type="text" 
-                          readOnly 
-                          value={showInviteLink ? inviteLink : '**************************************************'} 
-                          className="w-full px-4 py-3 bg-white border-2 border-black text-sm font-bold focus:outline-none pr-12"
-                        />
-                        <button 
-                          onClick={() => setShowInviteLink(!showInviteLink)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 p-2 hover:bg-[var(--paper)] transition-colors border-2 border-transparent hover:border-black"
-                          title="Toggle visibility"
-                        >
-                          {showInviteLink ? (
-                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
-                              <line x1="1" y1="1" x2="23" y2="23"></line>
-                            </svg>
-                          ) : (
-                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-                              <circle cx="12" cy="12" r="3"></circle>
-                            </svg>
-                          )}
-                        </button>
-                      </div>
-                      <button 
-                        onClick={() => {
-                          navigator.clipboard.writeText(inviteLink);
-                          alert('Link copied to clipboard!');
-                        }}
-                        className="px-6 py-3 bg-black text-white border-2 border-black font-bold text-sm uppercase tracking-wider hover:-translate-y-0.5 transition-transform whitespace-nowrap"
-                      >
-                        Copy Link
-                      </button>
                     </div>
                   </div>
                 )}
@@ -2291,7 +2276,7 @@ export default function WorkspaceHubPage() {
 
                   {searchResults.messages?.length === 0 && searchResults.tasks?.length === 0 && searchResults.users?.length === 0 && (
                     <div className="text-center py-12 font-bold uppercase tracking-widest text-[var(--danger)]">
-                      No results found for "{searchQuery}"
+                      No results found for &quot;{searchQuery}&quot;
                     </div>
                   )}
                 </>

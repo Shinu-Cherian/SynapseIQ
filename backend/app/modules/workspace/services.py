@@ -276,7 +276,8 @@ def join_workspace(db: Session, workspace_id: str, email: str, full_name: str, p
 
 def remove_workspace_member(db: Session, workspace_id: str, user_id: int) -> bool:
     """
-    Removes a member from a workspace. Returns True if successful.
+    Removes a member from a workspace and deletes their user account to free up the email.
+    Returns True if successful.
     """
     membership = db.query(WorkspaceMember).filter(
         WorkspaceMember.workspace_id == workspace_id,
@@ -293,7 +294,92 @@ def remove_workspace_member(db: Session, workspace_id: str, user_id: int) -> boo
             detail="Workspace Owner cannot be removed from the workspace. Transfer ownership first."
         )
         
-    db.delete(membership)
+    user = db.query(User).filter(User.id == user_id).first()
+    if user:
+        db.delete(user) # Cascades to WorkspaceMember
+    else:
+        db.delete(membership)
+        
+    db.commit()
+    return True
+
+import string
+import random
+
+def add_workspace_member_direct(db: Session, workspace_id: str, full_name: str, email: str, role: str) -> dict:
+    email_clean = email.lower().strip()
+    
+    # 1. Check if user already exists
+    user = get_user_by_email(db, email_clean)
+    if user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User email already exists in the system. They must be removed from their previous workspace first."
+        )
+        
+    # 2. Generate random 6 character password
+    generated_password = ''.join(random.choices(string.ascii_letters + string.digits, k=6))
+    
+    # 3. Create User
+    user_create = UserCreate(
+        email=email_clean,
+        full_name=full_name,
+        password=generated_password
+    )
+    user = register_user(db, user_create)
+    user.is_verified = True
+    db.commit()
+    
+    # 4. Create WorkspaceMember with status Pending
+    member = WorkspaceMember(
+        workspace_id=workspace_id,
+        user_id=user.id,
+        role=role,
+        status="Pending Approval"
+    )
+    db.add(member)
+    db.commit()
+    db.refresh(member)
+    
+    return {
+        "member": member,
+        "generated_password": generated_password
+    }
+
+def approve_workspace_member(db: Session, workspace_id: str, user_id: int) -> bool:
+    member = db.query(WorkspaceMember).filter(
+        WorkspaceMember.workspace_id == workspace_id,
+        WorkspaceMember.user_id == user_id
+    ).first()
+    
+    if not member:
+        return False
+        
+    member.status = "Active"
+    
+    # Automatically create a DM channel between the Owner and this member
+    workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+    if workspace:
+        from app.modules.chat.models import Channel
+        # Check if DM already exists just in case
+        existing_dm = db.query(Channel).filter(
+            Channel.workspace_id == workspace_id,
+            Channel.is_dm == True,
+            ((Channel.dm_user_1_id == workspace.owner_id) & (Channel.dm_user_2_id == user_id)) |
+            ((Channel.dm_user_1_id == user_id) & (Channel.dm_user_2_id == workspace.owner_id))
+        ).first()
+        if not existing_dm:
+            dm_channel = Channel(
+                workspace_id=workspace_id,
+                name=f"DM: {user.full_name}",
+                description=f"Direct message with {user.full_name}",
+                is_private=True,
+                is_dm=True,
+                dm_user_1_id=workspace.owner_id,
+                dm_user_2_id=user_id
+            )
+            db.add(dm_channel)
+
     db.commit()
     return True
 

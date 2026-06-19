@@ -130,6 +130,19 @@ export const api = {
         headers: getHeaders()
       }).then(handleResponse),
       
+    addDirect: (workspaceId, fullName, email, role) =>
+      fetch(`${BASE_URL}/workspaces/${workspaceId}/members/add-direct`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({ full_name: fullName, email, role })
+      }).then(handleResponse),
+      
+    approveMember: (workspaceId, userId) =>
+      fetch(`${BASE_URL}/workspaces/${workspaceId}/members/${userId}/approve`, {
+        method: 'PATCH',
+        headers: getHeaders()
+      }).then(handleResponse),
+      
     removeMember: (workspaceId, userId) =>
       fetch(`${BASE_URL}/workspaces/${workspaceId}/members/${userId}`, {
         method: 'DELETE',

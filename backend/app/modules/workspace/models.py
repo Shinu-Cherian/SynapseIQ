@@ -23,6 +23,7 @@ class WorkspaceMember(Base):
     workspace_id = Column(String, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     role = Column(String, nullable=False, default="Member") # Owner, Admin, Member
+    status = Column(String, nullable=False, default="Active") # Active, Pending Approval
     joined_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     # Relationships

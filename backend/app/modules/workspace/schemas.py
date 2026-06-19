@@ -24,11 +24,18 @@ class WorkspaceMemberResponse(BaseModel):
     email: EmailStr
     full_name: str
     role: str
+    status: str
     joined_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
 
-# Schema for inviting a member
+# Schema for adding a member directly
+class WorkspaceMemberAddDirect(BaseModel):
+    full_name: str
+    email: EmailStr
+    role: str = Field(default="Member")
+
+# Schema for inviting a member via link (deprecated/optional now)
 class WorkspaceInvitationCreate(BaseModel):
     email: EmailStr
     role: str = Field(default="Member", description="Role to assign (Admin or Member)")
