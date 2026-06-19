@@ -361,24 +361,27 @@ def approve_workspace_member(db: Session, workspace_id: str, user_id: int) -> bo
     workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
     if workspace:
         from app.modules.chat.models import Channel
-        # Check if DM already exists just in case
-        existing_dm = db.query(Channel).filter(
-            Channel.workspace_id == workspace_id,
-            Channel.is_dm == True,
-            ((Channel.dm_user_1_id == workspace.owner_id) & (Channel.dm_user_2_id == user_id)) |
-            ((Channel.dm_user_1_id == user_id) & (Channel.dm_user_2_id == workspace.owner_id))
-        ).first()
-        if not existing_dm:
-            dm_channel = Channel(
-                workspace_id=workspace_id,
-                name=f"DM: {user.full_name}",
-                description=f"Direct message with {user.full_name}",
-                is_private=True,
-                is_dm=True,
-                dm_user_1_id=workspace.owner_id,
-                dm_user_2_id=user_id
-            )
-            db.add(dm_channel)
+        from app.modules.auth.services import get_user_by_id
+        user = get_user_by_id(db, user_id)
+        if user:
+            # Check if DM already exists just in case
+            existing_dm = db.query(Channel).filter(
+                Channel.workspace_id == workspace_id,
+                Channel.is_dm == True,
+                ((Channel.dm_user_1_id == workspace.owner_id) & (Channel.dm_user_2_id == user_id)) |
+                ((Channel.dm_user_1_id == user_id) & (Channel.dm_user_2_id == workspace.owner_id))
+            ).first()
+            if not existing_dm:
+                dm_channel = Channel(
+                    workspace_id=workspace_id,
+                    name=f"DM: {user.full_name}",
+                    description=f"Direct message with {user.full_name}",
+                    is_private=True,
+                    is_dm=True,
+                    dm_user_1_id=workspace.owner_id,
+                    dm_user_2_id=user_id
+                )
+                db.add(dm_channel)
 
     db.commit()
     return True
