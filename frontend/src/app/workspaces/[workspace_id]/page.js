@@ -67,12 +67,18 @@ export default function WorkspaceHubPage() {
   const [selectedDocTitle, setSelectedDocTitle] = useState('')
   const [activeJitsiRoomId, setActiveJitsiRoomId] = useState(null)
   const [activeJitsiMeetingTitle, setActiveJitsiMeetingTitle] = useState('')
+  const [jitsiScriptLoaded, setJitsiScriptLoaded] = useState(false)
 
   // Jitsi Script Loading
   useEffect(() => {
+    if (window.JitsiMeetExternalAPI) {
+      setJitsiScriptLoaded(true)
+      return
+    }
     const script = document.createElement("script")
     script.src = "https://meet.jit.si/external_api.js"
     script.async = true
+    script.onload = () => setJitsiScriptLoaded(true)
     document.body.appendChild(script)
   }, [])
 
@@ -788,7 +794,7 @@ export default function WorkspaceHubPage() {
 
   useEffect(() => {
     let jitsiApi = null
-    if (activeJitsiRoomId && window.JitsiMeetExternalAPI) {
+    if (activeJitsiRoomId && jitsiScriptLoaded && window.JitsiMeetExternalAPI) {
         const domain = 'meet.jit.si'
         const options = {
             roomName: activeJitsiRoomId,
@@ -813,7 +819,7 @@ export default function WorkspaceHubPage() {
     return () => {
         if (jitsiApi) jitsiApi.dispose()
     }
-  }, [activeJitsiRoomId, currentUser])
+  }, [activeJitsiRoomId, currentUser, jitsiScriptLoaded])
 
   const handleUploadTranscript = async (e) => {
     e.preventDefault()
