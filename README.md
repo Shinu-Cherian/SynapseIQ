@@ -2,6 +2,9 @@
 
 > A premium enterprise-grade, full-stack workspace that combines team collaboration, project management, and AI-driven knowledge management into a unified platform.
 
+**🚀 [Live Deployment (Vercel / Render) - Click Here to Test!](https://synapseiq.vercel.app)**  
+*(Replace this link with your actual Vercel deployment URL if it differs)*
+
 [![FastAPI](https://img.shields.io/badge/Backend-FastAPI%200.111-009688?style=flat&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![Next.js](https://img.shields.io/badge/Frontend-Next.js%2014-000000?style=flat&logo=next.js&logoColor=white)](https://nextjs.org/)
 [![PostgreSQL](https://img.shields.io/badge/Database-PostgreSQL-4169E1?style=flat&logo=postgresql&logoColor=white)](https://www.postgresql.org/)
