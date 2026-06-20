@@ -41,6 +41,11 @@ async def lifespan(app: FastAPI):
         from sqlalchemy import text
         with engine.begin() as conn:
             conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
+            try:
+                conn.execute(text("ALTER TABLE workspace_members ADD COLUMN status VARCHAR NOT NULL DEFAULT 'Active';"))
+                print("Added status column to workspace_members.")
+            except Exception as e:
+                pass
         Base.metadata.create_all(bind=engine)
         print("Database tables initialized successfully!")
     except Exception as e:
