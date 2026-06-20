@@ -87,6 +87,7 @@ def get_workspace_members(db: Session, workspace_id: str):
         User.email,
         User.full_name,
         WorkspaceMember.role,
+        WorkspaceMember.status,
         WorkspaceMember.joined_at
     ).join(WorkspaceMember, WorkspaceMember.user_id == User.id)\
      .filter(WorkspaceMember.workspace_id == workspace_id).all()
