@@ -586,8 +586,15 @@ export default function WorkspaceHubPage() {
         addMemberData.email.trim(), 
         addMemberData.role
       )
-      setAddMemberMessage(`Successfully added! Please share the generated password with the user.`)
-      setGeneratedPassword(res.generated_password)
+      
+      if (res.is_existing_user) {
+        setAddMemberMessage(`Successfully added! The user already has an account, so they can log in with their existing password.`)
+        setGeneratedPassword(null)
+      } else {
+        setAddMemberMessage(`Successfully added! Please share the generated password with the user.`)
+        setGeneratedPassword(res.generated_password)
+      }
+      
       setAddMemberData({ fullName: '', email: '', role: 'Member' })
       
       const members = await api.workspaces.members(workspace_id)

@@ -312,24 +312,34 @@ def add_workspace_member_direct(db: Session, workspace_id: str, full_name: str, 
     
     # 1. Check if user already exists
     user = get_user_by_email(db, email_clean)
-    if user:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="User email already exists in the system. They must be removed from their previous workspace first."
-        )
-        
-    # 2. Generate random 6 character password
-    generated_password = ''.join(random.choices(string.ascii_letters + string.digits, k=6))
+    generated_password = None
+    is_existing_user = False
     
-    # 3. Create User
-    user_create = UserCreate(
-        email=email_clean,
-        full_name=full_name,
-        password=generated_password
-    )
-    user = register_user(db, user_create)
-    user.is_verified = True
-    db.commit()
+    if user:
+        is_existing_user = True
+        # Check if already a member of this workspace
+        existing_member = db.query(WorkspaceMember).filter(
+            WorkspaceMember.workspace_id == workspace_id,
+            WorkspaceMember.user_id == user.id
+        ).first()
+        if existing_member:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="User is already a member of this workspace."
+            )
+    else:
+        # 2. Generate random 6 character password
+        generated_password = ''.join(random.choices(string.ascii_letters + string.digits, k=6))
+        
+        # 3. Create User
+        user_create = UserCreate(
+            email=email_clean,
+            full_name=full_name,
+            password=generated_password
+        )
+        user = register_user(db, user_create)
+        user.is_verified = True
+        db.commit()
     
     # 4. Create WorkspaceMember with status Pending
     member = WorkspaceMember(
@@ -344,7 +354,8 @@ def add_workspace_member_direct(db: Session, workspace_id: str, full_name: str, 
     
     return {
         "member": member,
-        "generated_password": generated_password
+        "generated_password": generated_password,
+        "is_existing_user": is_existing_user
     }
 
 def approve_workspace_member(db: Session, workspace_id: str, user_id: int) -> bool:

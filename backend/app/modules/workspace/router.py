@@ -167,7 +167,8 @@ def add_member_direct(
     
     return {
         "message": f"User {add_in.full_name} added to workspace.",
-        "generated_password": result["generated_password"]
+        "generated_password": result.get("generated_password"),
+        "is_existing_user": result.get("is_existing_user")
     }
 
 @router.patch("/{workspace_id}/members/{user_id}/approve")
