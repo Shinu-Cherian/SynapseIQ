@@ -108,12 +108,15 @@ def delete_workspace(db: Session, workspace_id: str) -> bool:
     if os.path.commonpath([storage_root, workspace_storage]) == storage_root:
         shutil.rmtree(workspace_storage, ignore_errors=True)
 
-    from app.core.storage import storage_service
-    for file_url in chat_file_urls:
-        try:
-            storage_service.delete_file_url(file_url)
-        except Exception:
-            pass
+    try:
+        from app.core.storage import storage_service
+        for file_url in chat_file_urls:
+            try:
+                storage_service.delete_file_url(file_url)
+            except Exception:
+                pass
+    except Exception as e:
+        print(f"Failed to cleanup storage: {e}")
     return True
 
 def get_workspace_members(db: Session, workspace_id: str):
