@@ -3,6 +3,7 @@ import boto3
 from fastapi import UploadFile
 import uuid
 import shutil
+from urllib.parse import unquote, urlparse
 
 AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
 AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
@@ -45,5 +46,26 @@ class StorageService:
             with open(local_path, "wb") as f:
                 f.write(file_bytes)
             return f"/storage/cloud_simulated/{unique_filename}"
+
+    def delete_file_url(self, file_url: str) -> None:
+        """Best-effort deletion for files previously returned by upload_bytes."""
+        if not file_url:
+            return
+        if self.use_s3:
+            path = unquote(urlparse(file_url).path).lstrip("/")
+            bucket_prefix = f"{AWS_BUCKET_NAME}/"
+            key = path[len(bucket_prefix):] if path.startswith(bucket_prefix) else path
+            if key:
+                self.s3.delete_object(Bucket=AWS_BUCKET_NAME, Key=key)
+            return
+
+        prefix = "/storage/cloud_simulated/"
+        if not file_url.startswith(prefix):
+            return
+        relative_path = file_url[len(prefix):].replace("/", os.sep)
+        root = os.path.abspath(self.local_storage_path)
+        target = os.path.abspath(os.path.join(root, relative_path))
+        if os.path.commonpath([root, target]) == root and os.path.isfile(target):
+            os.remove(target)
 
 storage_service = StorageService()

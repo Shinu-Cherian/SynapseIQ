@@ -314,7 +314,8 @@ async def websocket_chat_endpoint(
     # 2. Verify workspace membership
     membership = db.query(WorkspaceMember).filter(
         WorkspaceMember.workspace_id == workspace_id,
-        WorkspaceMember.user_id == user_id
+        WorkspaceMember.user_id == user_id,
+        WorkspaceMember.status == "Active",
     ).first()
     if not membership:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)

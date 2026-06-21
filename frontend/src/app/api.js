@@ -129,6 +129,25 @@ export const api = {
         method: 'GET',
         headers: getHeaders()
       }).then(handleResponse),
+
+    requestAccess: (memberId, password) =>
+      fetch(`${BASE_URL}/workspaces/join-request`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({ member_id: memberId, password })
+      }).then(handleResponse),
+
+    myAccessRequests: () =>
+      fetch(`${BASE_URL}/workspaces/access-requests/me`, {
+        method: 'GET',
+        headers: getHeaders()
+      }).then(handleResponse),
+
+    accessCredentials: (workspaceId) =>
+      fetch(`${BASE_URL}/workspaces/${workspaceId}/access-credentials`, {
+        method: 'GET',
+        headers: getHeaders()
+      }).then(handleResponse),
       
     addDirect: (workspaceId, fullName, email, role) =>
       fetch(`${BASE_URL}/workspaces/${workspaceId}/members/add-direct`, {
@@ -140,6 +159,18 @@ export const api = {
     approveMember: (workspaceId, userId) =>
       fetch(`${BASE_URL}/workspaces/${workspaceId}/members/${userId}/approve`, {
         method: 'PATCH',
+        headers: getHeaders()
+      }).then(handleResponse),
+
+    approveAccessRequest: (workspaceId, credentialId) =>
+      fetch(`${BASE_URL}/workspaces/${workspaceId}/access-credentials/${credentialId}/approve`, {
+        method: 'PATCH',
+        headers: getHeaders()
+      }).then(handleResponse),
+
+    deleteAccessCredential: (workspaceId, credentialId) =>
+      fetch(`${BASE_URL}/workspaces/${workspaceId}/access-credentials/${credentialId}`, {
+        method: 'DELETE',
         headers: getHeaders()
       }).then(handleResponse),
       

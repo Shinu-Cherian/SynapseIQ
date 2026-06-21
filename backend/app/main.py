@@ -11,7 +11,7 @@ from app.core.rate_limit import setup_rate_limiting
 
 # Import models to register them on Base metadata before auto-creating tables
 from app.modules.auth.models import User
-from app.modules.workspace.models import Workspace, WorkspaceMember, WorkspaceInvitation
+from app.modules.workspace.models import Workspace, WorkspaceMember, WorkspaceInvitation, WorkspaceAccessCredential
 from app.modules.projects.models import Project, ProjectMember, ProjectTask
 from app.modules.chat.models import Channel, Message
 from app.modules.documents.models import Document, DocumentVersion

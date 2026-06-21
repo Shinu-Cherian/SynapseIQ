@@ -4,7 +4,6 @@ from app.core.database import get_db
 from app.modules.auth import schemas, services
 from app.modules.auth.dependencies import get_current_user
 from app.modules.auth.models import User
-from app.modules.workspace.models import WorkspaceMember
 from app.core.security import create_access_token
 from app.core.rate_limit import limiter
 
@@ -42,18 +41,6 @@ def login(request: Request, login_in: schemas.UserLogin, db: Session = Depends(g
             detail="User account is deactivated",
         )
 
-    # Accounts provisioned by a Team Head cannot receive a token until at
-    # least one membership is approved. Regular self-signups (no membership
-    # yet) can still log in and create their first workspace.
-    memberships = db.query(WorkspaceMember).filter(
-        WorkspaceMember.user_id == user.id
-    ).all()
-    if memberships and not any(member.status == "Active" for member in memberships):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Your access is waiting for Team Head approval."
-        )
-    
     # Optional check: uncomment to enforce email verification
     # if not user.is_verified:
     #     raise HTTPException(

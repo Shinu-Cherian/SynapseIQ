@@ -33,6 +33,39 @@ def get_my_workspaces(
     """
     return services.get_user_workspaces(db, user_id=current_user.id)
 
+
+@router.post("/join-request")
+@limiter.limit("10/minute")
+def request_workspace_access(
+    request: Request,
+    join_in: schemas.WorkspaceJoinRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Submits an authenticated user's one-time workspace credentials for approval."""
+    result = services.request_workspace_access(
+        db,
+        member_id=join_in.member_id,
+        password=join_in.password,
+        user=current_user,
+    )
+    if result["status"] == "Pending Approval":
+        from app.modules.chat.websocket_manager import manager
+        background_tasks.add_task(manager.broadcast_to_workspace, {
+            "type": "WORKSPACE_UPDATE",
+            "action": "access_requested",
+        }, result["workspace_id"])
+    return result
+
+
+@router.get("/access-requests/me", response_model=List[schemas.WorkspaceAccessRequestResponse])
+def get_my_access_requests(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return services.get_user_access_requests(db, user_id=current_user.id)
+
 @router.get("/{workspace_id}", response_model=schemas.WorkspaceResponse)
 def get_workspace(
     workspace_id: str,
@@ -146,8 +179,8 @@ def add_member_direct(
     current_member: WorkspaceMember = Depends(RequireWorkspaceRole(["Owner", "Admin"]))
 ):
     """
-    Directly adds a member and generates a secure temporary password for them.
-    The new member will be in 'Pending Approval' status.
+    Issues a unique Member ID and one-time workspace password.
+    No membership is created until the user requests access and is approved.
     """
     result = services.add_workspace_member_direct(
         db,
@@ -166,11 +199,59 @@ def add_member_direct(
     background_tasks.add_task(manager.broadcast_to_workspace, payload, workspace_id)
     
     return {
-        "message": f"User {add_in.full_name} added to workspace.",
+        "message": f"Workspace credentials issued for {add_in.full_name}.",
+        "member_id": result.get("member_id"),
         "generated_password": result.get("generated_password"),
-        "is_existing_user": result.get("is_existing_user"),
-        "member": result.get("member_data")
+        "credential": result.get("credential"),
     }
+
+
+@router.get(
+    "/{workspace_id}/access-credentials",
+    response_model=List[schemas.WorkspaceAccessCredentialResponse],
+)
+def get_access_credentials(
+    workspace_id: str,
+    db: Session = Depends(get_db),
+    current_member: WorkspaceMember = Depends(RequireWorkspaceRole(["Owner", "Admin"])),
+):
+    return services.get_workspace_access_credentials(db, workspace_id)
+
+
+@router.patch("/{workspace_id}/access-credentials/{credential_id}/approve")
+def approve_access_request(
+    workspace_id: str,
+    credential_id: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_member: WorkspaceMember = Depends(RequireWorkspaceRole(["Owner", "Admin"])),
+):
+    member = services.approve_access_request(db, workspace_id, credential_id)
+    if not member:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Pending access request not found.",
+        )
+
+    from app.modules.chat.websocket_manager import manager
+    background_tasks.add_task(manager.broadcast_to_workspace, {
+        "type": "WORKSPACE_UPDATE",
+        "action": "member_approved",
+        "user_id": member["user_id"],
+    }, workspace_id)
+    return {"message": "Member approved successfully.", "member": member}
+
+
+@router.delete("/{workspace_id}/access-credentials/{credential_id}")
+def deny_or_revoke_access_credential(
+    workspace_id: str,
+    credential_id: int,
+    db: Session = Depends(get_db),
+    current_member: WorkspaceMember = Depends(RequireWorkspaceRole(["Owner", "Admin"])),
+):
+    if not services.delete_access_credential(db, workspace_id, credential_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Credential not found.")
+    return {"message": "Workspace credentials revoked."}
 
 @router.patch("/{workspace_id}/members/{user_id}/approve")
 def approve_member(

@@ -51,6 +51,8 @@ export default function WorkspaceHubPage() {
   const [addMemberLoading, setAddMemberLoading] = useState(false)
   const [addMemberMessage, setAddMemberMessage] = useState('')
   const [generatedPassword, setGeneratedPassword] = useState('')
+  const [generatedMemberId, setGeneratedMemberId] = useState('')
+  const [accessCredentials, setAccessCredentials] = useState([])
   const [memberAction, setMemberAction] = useState({ userId: null, type: null })
   const [teamActionMessage, setTeamActionMessage] = useState('')
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
@@ -152,7 +154,6 @@ export default function WorkspaceHubPage() {
   }, [selectedChannel])
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/immutability
     initWorkspace()
   }, [workspace_id])
 
@@ -289,6 +290,9 @@ export default function WorkspaceHubPage() {
               }
             }).catch(console.error)
           }).catch(console.error)
+          api.workspaces.accessCredentials(workspace_id)
+            .then(setAccessCredentials)
+            .catch(() => {})
           return
         }
 
@@ -350,6 +354,12 @@ export default function WorkspaceHubPage() {
       const myMemberRecord = members.find(m => m.user_id === user.id)
       setCurrentUserRole(myMemberRecord?.role)
       setCurrentUserStatus(myMemberRecord?.status)
+
+      if (myMemberRecord?.role === 'Owner' || myMemberRecord?.role === 'Admin') {
+        api.workspaces.accessCredentials(workspace_id)
+          .then(setAccessCredentials)
+          .catch(console.error)
+      }
       
       // Fire secondary requests in the background
       fetchNotifications()
@@ -580,6 +590,7 @@ export default function WorkspaceHubPage() {
     setAddMemberLoading(true)
     setAddMemberMessage('')
     setGeneratedPassword('')
+    setGeneratedMemberId('')
 
     try {
       const res = await api.workspaces.addDirect(
@@ -589,24 +600,54 @@ export default function WorkspaceHubPage() {
         addMemberData.role
       )
       
-      if (res.is_existing_user) {
-        setAddMemberMessage(`Member added. Their workspace login will unlock after approval.`)
-        setGeneratedPassword(null)
-      } else {
-        setAddMemberMessage(`Member added. Share this temporary password securely; login will unlock after approval.`)
-        setGeneratedPassword(res.generated_password)
-      }
+      setAddMemberMessage('Credentials issued. Share both values securely; the password is shown only once.')
+      setGeneratedMemberId(res.member_id)
+      setGeneratedPassword(res.generated_password)
       
       setAddMemberData({ fullName: '', email: '', role: 'Member' })
       
-      if (res.member) {
-        setWorkspaceMembers(prev => [...prev, res.member])
+      if (res.credential) {
+        setAccessCredentials(prev => [res.credential, ...prev])
       }
     } catch (err) {
       setAddMemberMessage(`Error: ${err.message || 'Failed to add member'}`)
     }
 
     setAddMemberLoading(false)
+  }
+
+  const handleApproveAccessRequest = async (credentialId) => {
+    setTeamActionMessage('')
+    setMemberAction({ userId: credentialId, type: 'approve-request' })
+    try {
+      const result = await api.workspaces.approveAccessRequest(workspace_id, credentialId)
+      setAccessCredentials(prev => prev.filter(item => item.id !== credentialId))
+      if (result.member) setWorkspaceMembers(prev => [...prev, result.member])
+      setTeamActionMessage('Access approved. The member will enter this workspace automatically.')
+    } catch (err) {
+      setTeamActionMessage(`Could not approve request: ${err.message || 'Please try again.'}`)
+    } finally {
+      setMemberAction({ userId: null, type: null })
+    }
+  }
+
+  const handleDeleteAccessCredential = async (credentialId, isPending) => {
+    const prompt = isPending
+      ? 'Deny this login request? The Member ID and workspace password will be permanently revoked.'
+      : 'Revoke these unused workspace credentials?'
+    if (!confirm(prompt)) return
+
+    setTeamActionMessage('')
+    setMemberAction({ userId: credentialId, type: 'revoke-credential' })
+    try {
+      await api.workspaces.deleteAccessCredential(workspace_id, credentialId)
+      setAccessCredentials(prev => prev.filter(item => item.id !== credentialId))
+      setTeamActionMessage(isPending ? 'Request denied and credentials deleted.' : 'Credentials revoked.')
+    } catch (err) {
+      setTeamActionMessage(`Could not revoke credentials: ${err.message || 'Please try again.'}`)
+    } finally {
+      setMemberAction({ userId: null, type: null })
+    }
   }
 
   const handleApproveMember = async (userId) => {
@@ -1122,18 +1163,28 @@ export default function WorkspaceHubPage() {
                 {addMemberMessage && (
                   <div className="mt-6 p-4 bg-[var(--paper-lift)] border-2 border-black shadow-[4px_4px_0_#1a1a1a]">
                     <p className="text-sm font-bold">{addMemberMessage}</p>
-                    {generatedPassword && (
+                    {generatedMemberId && generatedPassword && (
                       <div className="mt-4 p-4 bg-white border-2 border-black flex flex-col gap-2">
-                        <span className="text-xs font-bold uppercase tracking-wider text-black/60">Generated Password</span>
-                        <div className="flex justify-between items-center">
-                          <span className="font-space text-2xl tracking-widest font-bold text-[var(--danger)]">{generatedPassword}</span>
+                        <span className="text-xs font-bold uppercase tracking-wider text-black/60">Workspace Login Credentials</span>
+                        <div className="grid sm:grid-cols-2 gap-4 my-2">
+                          <div>
+                            <span className="block text-[10px] font-bold uppercase text-black/50">Member ID</span>
+                            <span className="font-space text-xl tracking-wider font-bold">{generatedMemberId}</span>
+                          </div>
+                          <div>
+                            <span className="block text-[10px] font-bold uppercase text-black/50">Workspace Password</span>
+                            <span className="font-space text-xl tracking-wider font-bold text-[var(--danger)]">{generatedPassword}</span>
+                          </div>
+                        </div>
+                        <div className="flex justify-end">
                           <button 
-                            onClick={() => navigator.clipboard.writeText(generatedPassword)}
+                            onClick={() => navigator.clipboard.writeText(`Member ID: ${generatedMemberId}\nWorkspace Password: ${generatedPassword}`)}
                             className="px-4 py-2 bg-black text-white text-xs font-bold uppercase tracking-wider hover:bg-gray-800"
                           >
-                            Copy Password
+                            Copy Both
                           </button>
                         </div>
+                        <p className="text-[11px] font-medium text-black/60">This password cannot be viewed again. Revoke and reissue credentials if it is lost.</p>
                       </div>
                     )}
                   </div>
@@ -1145,7 +1196,66 @@ export default function WorkspaceHubPage() {
                   </div>
                 )}
 
-                {/* Pending Approvals Section */}
+                {/* Issued credentials that have not been used yet */}
+                {accessCredentials.filter(item => item.status === 'Issued').length > 0 && (
+                  <div className="mt-8">
+                    <h4 className="text-sm font-bold uppercase tracking-widest border-b-2 border-black pb-2 mb-4">Issued Credentials</h4>
+                    <div className="flex flex-col gap-2">
+                      {accessCredentials.filter(item => item.status === 'Issued').map(item => (
+                        <div key={item.id} className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 p-4 bg-white border-2 border-black">
+                          <div className="flex flex-col gap-0.5">
+                            <p className="font-bold text-sm">{item.full_name}</p>
+                            <p className="font-medium text-black/60 text-xs">{item.email}</p>
+                            <p className="text-[10px] uppercase tracking-wider font-bold mt-1">{item.member_id} · {item.role} · Not used yet</p>
+                          </div>
+                          <button
+                            onClick={() => handleDeleteAccessCredential(item.id, false)}
+                            disabled={memberAction.userId === item.id}
+                            className="px-4 py-2 bg-white border-2 border-black text-xs font-bold uppercase hover:bg-red-600 hover:text-white disabled:opacity-50 transition-colors"
+                          >
+                            {memberAction.userId === item.id ? 'Revoking...' : 'Revoke Credentials'}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Members who submitted valid workspace credentials */}
+                {accessCredentials.filter(item => item.status === 'Pending Approval').length > 0 && (
+                  <div className="mt-8">
+                    <h4 className="text-sm font-bold uppercase tracking-widest border-b-2 border-black pb-2 mb-4">Login Requests</h4>
+                    <div className="flex flex-col gap-2">
+                      {accessCredentials.filter(item => item.status === 'Pending Approval').map(item => (
+                        <div key={item.id} className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 p-4 bg-[var(--paper-lift)] border-2 border-black shadow-[4px_4px_0_#1a1a1a]">
+                          <div className="flex flex-col gap-0.5">
+                            <p className="font-bold text-sm">{item.full_name}</p>
+                            <p className="font-medium text-black/60 text-xs">{item.email}</p>
+                            <p className="text-[10px] uppercase tracking-wider text-yellow-700 font-bold mt-1">Valid request · {item.member_id} · {item.role}</p>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              onClick={() => handleDeleteAccessCredential(item.id, true)}
+                              disabled={memberAction.userId === item.id}
+                              className="px-4 py-2 bg-white border-2 border-black text-xs font-bold uppercase hover:bg-red-600 hover:text-white disabled:opacity-50 transition-colors"
+                            >
+                              {memberAction.userId === item.id && memberAction.type === 'revoke-credential' ? 'Denying...' : 'Deny'}
+                            </button>
+                            <button
+                              onClick={() => handleApproveAccessRequest(item.id)}
+                              disabled={memberAction.userId === item.id}
+                              className="px-4 py-2 bg-[var(--gold)] border-2 border-black text-xs font-bold uppercase disabled:opacity-50"
+                            >
+                              {memberAction.userId === item.id && memberAction.type === 'approve-request' ? 'Approving...' : 'Approve'}
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Legacy pending memberships created before workspace credentials */}
                 {workspaceMembers.filter(m => m.status === 'Pending Approval').length > 0 && (
                   <div className="mt-8">
                     <h4 className="text-sm font-bold uppercase tracking-widest border-b-2 border-black pb-2 mb-4">Pending Approvals</h4>

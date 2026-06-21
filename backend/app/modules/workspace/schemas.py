@@ -8,7 +8,13 @@ class WorkspaceBase(BaseModel):
 
 # Schema for creating a workspace
 class WorkspaceCreate(WorkspaceBase):
-    id: str = Field(..., description="Unique shorthand ID for workspace (e.g. TECHNOVA-001)")
+    id: str = Field(
+        ...,
+        min_length=3,
+        max_length=50,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9-]*$",
+        description="Unique shorthand ID using letters, numbers and hyphens (e.g. TECHNOVA-001)",
+    )
 
 # Schema to return workspace details
 class WorkspaceResponse(WorkspaceBase):
@@ -34,6 +40,30 @@ class WorkspaceMemberAddDirect(BaseModel):
     full_name: str = Field(min_length=2, max_length=100)
     email: EmailStr
     role: Literal["Admin", "Member"] = "Member"
+
+
+class WorkspaceJoinRequest(BaseModel):
+    member_id: str = Field(min_length=6, max_length=32)
+    password: str = Field(min_length=8, max_length=128)
+
+
+class WorkspaceAccessCredentialResponse(BaseModel):
+    id: int
+    workspace_id: str
+    member_id: str
+    full_name: str
+    email: EmailStr
+    role: str
+    status: str
+    requested_user_id: Optional[int] = None
+    created_at: datetime
+    requested_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class WorkspaceAccessRequestResponse(WorkspaceAccessCredentialResponse):
+    workspace_name: str
 
 # Schema for inviting a member via link (deprecated/optional now)
 class WorkspaceInvitationCreate(BaseModel):

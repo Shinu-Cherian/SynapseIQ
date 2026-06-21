@@ -1,15 +1,19 @@
 import secrets
+import string
+import os
+import shutil
 import httpx
 from datetime import datetime, timedelta, timezone
 from app.core.config import settings
 from typing import List, Optional
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
-from app.modules.workspace.models import Workspace, WorkspaceMember, WorkspaceInvitation
+from app.modules.workspace.models import Workspace, WorkspaceMember, WorkspaceInvitation, WorkspaceAccessCredential
 from app.modules.workspace.schemas import WorkspaceCreate, WorkspaceInvitationCreate
 from app.modules.auth.models import User
 from app.modules.auth.services import register_user, get_user_by_email
 from app.modules.auth.schemas import UserCreate
+from app.core.security import hash_password, verify_password
 
 def get_workspace_by_id(db: Session, workspace_id: str) -> Optional[Workspace]:
     """
@@ -22,7 +26,8 @@ def create_workspace(db: Session, workspace_in: WorkspaceCreate, owner_id: int) 
     Creates a workspace and registers the creator as the Owner.
     """
     # 1. Check if Workspace ID is already taken
-    existing = get_workspace_by_id(db, workspace_in.id)
+    normalized_id = workspace_in.id.upper().strip()
+    existing = get_workspace_by_id(db, normalized_id)
     if existing:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -31,7 +36,7 @@ def create_workspace(db: Session, workspace_in: WorkspaceCreate, owner_id: int) 
     
     # 2. Create the workspace row
     db_workspace = Workspace(
-        id=workspace_in.id.upper().strip(),
+        id=normalized_id,
         name=workspace_in.name,
         owner_id=owner_id
     )
@@ -77,8 +82,38 @@ def delete_workspace(db: Session, workspace_id: str) -> bool:
     workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
     if not workspace:
         return False
+
+    from app.modules.documents.models import Document, DocumentVersion
+    from app.modules.chat.models import Channel, Message
+    document_paths = [row[0] for row in db.query(DocumentVersion.file_path).join(Document).filter(
+        Document.workspace_id == workspace_id
+    ).all()]
+    chat_file_urls = [row[0] for row in db.query(Message.file_url).join(Channel).filter(
+        Channel.workspace_id == workspace_id,
+        Message.file_url.isnot(None),
+    ).all()]
+
     db.delete(workspace)
     db.commit()
+
+    for file_path in document_paths:
+        try:
+            if file_path and os.path.isfile(file_path):
+                os.remove(file_path)
+        except OSError:
+            pass
+
+    workspace_storage = os.path.abspath(os.path.join(os.getcwd(), "storage", workspace_id))
+    storage_root = os.path.abspath(os.path.join(os.getcwd(), "storage"))
+    if os.path.commonpath([storage_root, workspace_storage]) == storage_root:
+        shutil.rmtree(workspace_storage, ignore_errors=True)
+
+    from app.core.storage import storage_service
+    for file_url in chat_file_urls:
+        try:
+            storage_service.delete_file_url(file_url)
+        except Exception:
+            pass
     return True
 
 def get_workspace_members(db: Session, workspace_id: str):
@@ -298,34 +333,29 @@ def remove_workspace_member(db: Session, workspace_id: str, user_id: int) -> boo
             detail="Workspace Owner cannot be removed from the workspace. Transfer ownership first."
         )
         
-    # Removing someone from one workspace must not destroy their account or
-    # memberships in other workspaces. Delete the account only when this is
-    # its sole membership (the usual case for a not-yet-approved direct add).
-    user = db.query(User).filter(User.id == user_id).first()
-    membership_count = db.query(WorkspaceMember).filter(
-        WorkspaceMember.user_id == user_id
-    ).count()
-    if user and membership_count == 1 and membership.status == "Pending Approval":
-        db.delete(user)
-    else:
-        db.delete(membership)
+    # SynapseIQ accounts are global. Removing workspace access must never
+    # delete the user's company login or memberships in other rooms.
+    db.delete(membership)
         
     db.commit()
     return True
 
-import string
-
 def add_workspace_member_direct(db: Session, workspace_id: str, full_name: str, email: str, role: str) -> dict:
+    """Issues one-time workspace credentials without creating a user or membership."""
     email_clean = email.lower().strip()
-    
-    # 1. Check if user already exists
+
+    outstanding = db.query(WorkspaceAccessCredential).filter(
+        WorkspaceAccessCredential.workspace_id == workspace_id,
+        WorkspaceAccessCredential.email == email_clean,
+    ).first()
+    if outstanding:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This email already has active workspace credentials. Revoke them before issuing new credentials."
+        )
+
     user = get_user_by_email(db, email_clean)
-    generated_password = None
-    is_existing_user = False
-    
     if user:
-        is_existing_user = True
-        # Check if already a member of this workspace
         existing_member = db.query(WorkspaceMember).filter(
             WorkspaceMember.workspace_id == workspace_id,
             WorkspaceMember.user_id == user.id
@@ -335,46 +365,209 @@ def add_workspace_member_direct(db: Session, workspace_id: str, full_name: str, 
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="User is already a member of this workspace."
             )
-    else:
-        # Generate a cryptographically secure temporary password. Twelve
-        # characters gives substantially more entropy than the old 6-char key.
-        alphabet = string.ascii_letters + string.digits
-        generated_password = ''.join(secrets.choice(alphabet) for _ in range(12))
-        
-        # 3. Create User
-        user_create = UserCreate(
-            email=email_clean,
-            full_name=full_name,
-            password=generated_password
+
+    alphabet = string.ascii_letters + string.digits
+    generated_password = ''.join(secrets.choice(alphabet) for _ in range(12))
+
+    member_id = None
+    for _ in range(10):
+        candidate = f"SIQ-{''.join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(8))}"
+        exists = db.query(WorkspaceAccessCredential.id).filter(
+            WorkspaceAccessCredential.member_id == candidate
+        ).first()
+        if not exists:
+            member_id = candidate
+            break
+    if not member_id:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Could not generate unique member credentials. Please try again."
         )
-        user = register_user(db, user_create)
-        user.is_verified = True
-        db.commit()
-    
-    # 4. Create WorkspaceMember with status Pending
-    member = WorkspaceMember(
+
+    credential = WorkspaceAccessCredential(
         workspace_id=workspace_id,
-        user_id=user.id,
+        member_id=member_id,
+        password_hash=hash_password(generated_password),
+        full_name=full_name.strip(),
+        email=email_clean,
         role=role,
-        status="Pending Approval"
+        status="Issued",
     )
-    db.add(member)
+    db.add(credential)
+    db.commit()
+    db.refresh(credential)
+
+    return {
+        "credential": {
+            "id": credential.id,
+            "workspace_id": credential.workspace_id,
+            "member_id": credential.member_id,
+            "full_name": credential.full_name,
+            "email": credential.email,
+            "role": credential.role,
+            "status": credential.status,
+            "requested_user_id": credential.requested_user_id,
+            "created_at": credential.created_at,
+            "requested_at": credential.requested_at,
+        },
+        "member_id": member_id,
+        "generated_password": generated_password,
+    }
+
+
+def get_workspace_access_credentials(db: Session, workspace_id: str):
+    return db.query(WorkspaceAccessCredential).filter(
+        WorkspaceAccessCredential.workspace_id == workspace_id
+    ).order_by(WorkspaceAccessCredential.created_at.desc()).all()
+
+
+def request_workspace_access(db: Session, member_id: str, password: str, user: User) -> dict:
+    credential = db.query(WorkspaceAccessCredential).filter(
+        WorkspaceAccessCredential.member_id == member_id.upper().strip()
+    ).first()
+
+    if not credential or not verify_password(password, credential.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid Member ID or workspace password."
+        )
+
+    if credential.email != user.email.lower().strip():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="These credentials were issued to a different company email."
+        )
+
+    existing_member = db.query(WorkspaceMember).filter(
+        WorkspaceMember.workspace_id == credential.workspace_id,
+        WorkspaceMember.user_id == user.id,
+    ).first()
+    if existing_member:
+        return {
+            "status": "Active",
+            "workspace_id": credential.workspace_id,
+            "message": "You already have access to this workspace.",
+        }
+
+    if credential.status == "Pending Approval":
+        if credential.requested_user_id != user.id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="An approval request already exists for these credentials."
+            )
+    else:
+        credential.status = "Pending Approval"
+        credential.requested_user_id = user.id
+        credential.requested_at = datetime.now(timezone.utc)
+        db.commit()
+
+    workspace = get_workspace_by_id(db, credential.workspace_id)
+    return {
+        "status": "Pending Approval",
+        "workspace_id": credential.workspace_id,
+        "workspace_name": workspace.name if workspace else credential.workspace_id,
+        "message": "Waiting for Team Head approval.",
+    }
+
+
+def get_user_access_requests(db: Session, user_id: int):
+    rows = db.query(WorkspaceAccessCredential, Workspace.name).join(
+        Workspace, Workspace.id == WorkspaceAccessCredential.workspace_id
+    ).filter(
+        WorkspaceAccessCredential.requested_user_id == user_id,
+        WorkspaceAccessCredential.status == "Pending Approval",
+    ).all()
+    return [
+        {
+            "id": credential.id,
+            "workspace_id": credential.workspace_id,
+            "workspace_name": workspace_name,
+            "member_id": credential.member_id,
+            "full_name": credential.full_name,
+            "email": credential.email,
+            "role": credential.role,
+            "status": credential.status,
+            "requested_user_id": credential.requested_user_id,
+            "created_at": credential.created_at,
+            "requested_at": credential.requested_at,
+        }
+        for credential, workspace_name in rows
+    ]
+
+
+def approve_access_request(db: Session, workspace_id: str, credential_id: int):
+    credential = db.query(WorkspaceAccessCredential).filter(
+        WorkspaceAccessCredential.id == credential_id,
+        WorkspaceAccessCredential.workspace_id == workspace_id,
+        WorkspaceAccessCredential.status == "Pending Approval",
+    ).first()
+    if not credential or not credential.requested_user_id:
+        return None
+
+    user = db.query(User).filter(User.id == credential.requested_user_id).first()
+    if not user or user.email.lower().strip() != credential.email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The requesting account no longer matches this credential."
+        )
+
+    member = db.query(WorkspaceMember).filter(
+        WorkspaceMember.workspace_id == workspace_id,
+        WorkspaceMember.user_id == user.id,
+    ).first()
+    if not member:
+        member = WorkspaceMember(
+            workspace_id=workspace_id,
+            user_id=user.id,
+            role=credential.role,
+            status="Active",
+        )
+        db.add(member)
+        db.flush()
+
+    workspace = get_workspace_by_id(db, workspace_id)
+    if workspace:
+        from app.modules.chat.models import Channel
+        existing_dm = db.query(Channel).filter(
+            Channel.workspace_id == workspace_id,
+            Channel.is_dm == True,
+            ((Channel.dm_user_1_id == workspace.owner_id) & (Channel.dm_user_2_id == user.id)) |
+            ((Channel.dm_user_1_id == user.id) & (Channel.dm_user_2_id == workspace.owner_id))
+        ).first()
+        if not existing_dm:
+            db.add(Channel(
+                workspace_id=workspace_id,
+                name=f"DM: {user.full_name}",
+                description=f"Direct message with {user.full_name}",
+                is_private=True,
+                is_dm=True,
+                dm_user_1_id=workspace.owner_id,
+                dm_user_2_id=user.id,
+            ))
+
+    db.delete(credential)
     db.commit()
     db.refresh(member)
-    
     return {
-        "member": member,
-        "member_data": {
-            "user_id": user.id,
-            "email": user.email,
-            "full_name": user.full_name,
-            "role": member.role,
-            "status": member.status,
-            "joined_at": member.joined_at,
-        },
-        "generated_password": generated_password,
-        "is_existing_user": is_existing_user
+        "user_id": user.id,
+        "email": user.email,
+        "full_name": user.full_name,
+        "role": member.role,
+        "status": member.status,
+        "joined_at": member.joined_at,
     }
+
+
+def delete_access_credential(db: Session, workspace_id: str, credential_id: int) -> bool:
+    credential = db.query(WorkspaceAccessCredential).filter(
+        WorkspaceAccessCredential.id == credential_id,
+        WorkspaceAccessCredential.workspace_id == workspace_id,
+    ).first()
+    if not credential:
+        return False
+    db.delete(credential)
+    db.commit()
+    return True
 
 def approve_workspace_member(db: Session, workspace_id: str, user_id: int):
     member = db.query(WorkspaceMember).filter(

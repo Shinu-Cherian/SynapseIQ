@@ -842,6 +842,55 @@ next-dev-portal,
   gap: 18px;
 }
 
+.workspace-list-layout {
+  width: min(1200px, calc(100% - 48px));
+  margin: 0 auto;
+  display: grid;
+  gap: 18px;
+}
+
+.workspace-actions-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.pending-room-list {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.pending-room-list h3 {
+  margin: 0 0 10px;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.pending-room-card {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  background: rgba(201, 169, 98, 0.14);
+}
+
+.pending-room-card span {
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.workspace-notice {
+  margin: 14px 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  background: rgba(201, 169, 98, 0.14);
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .workspace-panel {
   padding: 24px;
 }
@@ -892,6 +941,10 @@ next-dev-portal,
   .permissions-layout,
   .auth-shell,
   .workspace-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .workspace-actions-grid {
     grid-template-columns: 1fr;
   }
 
