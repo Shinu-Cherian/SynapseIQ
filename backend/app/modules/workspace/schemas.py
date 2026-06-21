@@ -1,6 +1,6 @@
 from datetime import datetime
 from pydantic import BaseModel, EmailStr, ConfigDict, Field
-from typing import Optional
+from typing import Literal, Optional
 
 # Base Workspace properties
 class WorkspaceBase(BaseModel):
@@ -31,9 +31,9 @@ class WorkspaceMemberResponse(BaseModel):
 
 # Schema for adding a member directly
 class WorkspaceMemberAddDirect(BaseModel):
-    full_name: str
+    full_name: str = Field(min_length=2, max_length=100)
     email: EmailStr
-    role: str = Field(default="Member")
+    role: Literal["Admin", "Member"] = "Member"
 
 # Schema for inviting a member via link (deprecated/optional now)
 class WorkspaceInvitationCreate(BaseModel):

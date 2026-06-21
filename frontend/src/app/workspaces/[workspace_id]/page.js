@@ -51,6 +51,8 @@ export default function WorkspaceHubPage() {
   const [addMemberLoading, setAddMemberLoading] = useState(false)
   const [addMemberMessage, setAddMemberMessage] = useState('')
   const [generatedPassword, setGeneratedPassword] = useState('')
+  const [memberAction, setMemberAction] = useState({ userId: null, type: null })
+  const [teamActionMessage, setTeamActionMessage] = useState('')
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 
   // 4. Documents State
@@ -72,8 +74,8 @@ export default function WorkspaceHubPage() {
   // Jitsi Script Loading
   useEffect(() => {
     if (window.JitsiMeetExternalAPI) {
-      setJitsiScriptLoaded(true)
-      return
+      const readyTimer = window.setTimeout(() => setJitsiScriptLoaded(true), 0)
+      return () => window.clearTimeout(readyTimer)
     }
     const script = document.createElement("script")
     script.src = "https://meet.jit.si/external_api.js"
@@ -588,17 +590,18 @@ export default function WorkspaceHubPage() {
       )
       
       if (res.is_existing_user) {
-        setAddMemberMessage(`Successfully added! The user already has an account, so they can log in with their existing password.`)
+        setAddMemberMessage(`Member added. Their workspace login will unlock after approval.`)
         setGeneratedPassword(null)
       } else {
-        setAddMemberMessage(`Successfully added! Please share the generated password with the user.`)
+        setAddMemberMessage(`Member added. Share this temporary password securely; login will unlock after approval.`)
         setGeneratedPassword(res.generated_password)
       }
       
       setAddMemberData({ fullName: '', email: '', role: 'Member' })
       
-      const members = await api.workspaces.members(workspace_id)
-      setWorkspaceMembers(members)
+      if (res.member) {
+        setWorkspaceMembers(prev => [...prev, res.member])
+      }
     } catch (err) {
       setAddMemberMessage(`Error: ${err.message || 'Failed to add member'}`)
     }
@@ -607,22 +610,41 @@ export default function WorkspaceHubPage() {
   }
 
   const handleApproveMember = async (userId) => {
+    const previousMembers = workspaceMembers
+    setTeamActionMessage('')
+    setMemberAction({ userId, type: 'approve' })
+    setWorkspaceMembers(prev => prev.map(member =>
+      member.user_id === userId ? { ...member, status: 'Active' } : member
+    ))
     try {
       await api.workspaces.approveMember(workspace_id, userId)
-      const members = await api.workspaces.members(workspace_id)
-      setWorkspaceMembers(members)
+      setTeamActionMessage('Member approved. They can now log in and access this workspace.')
     } catch (err) {
-      alert(err.message || "Failed to approve member")
+      setWorkspaceMembers(previousMembers)
+      setTeamActionMessage(`Could not approve member: ${err.message || 'Please try again.'}`)
+    } finally {
+      setMemberAction({ userId: null, type: null })
     }
   }
 
-  const handleRemoveMember = async (userId) => {
-    if (!confirm('Are you sure you want to remove this member from the workspace? They will lose all access immediately.')) return;
+  const handleRemoveMember = async (userId, isPending = false) => {
+    const message = isPending
+      ? 'Delete this pending member? Their invitation and temporary login will be revoked.'
+      : 'Remove this member? They will lose access to this workspace immediately.'
+    if (!confirm(message)) return
+
+    const previousMembers = workspaceMembers
+    setTeamActionMessage('')
+    setMemberAction({ userId, type: 'remove' })
+    setWorkspaceMembers(prev => prev.filter(member => member.user_id !== userId))
     try {
       await api.workspaces.removeMember(workspace_id, userId)
-      setWorkspaceMembers(workspaceMembers.filter(m => m.user_id !== userId))
+      setTeamActionMessage(isPending ? 'Pending member deleted.' : 'Member removed from this workspace.')
     } catch (err) {
-      alert(err.message)
+      setWorkspaceMembers(previousMembers)
+      setTeamActionMessage(`Could not remove member: ${err.message || 'Please try again.'}`)
+    } finally {
+      setMemberAction({ userId: null, type: null })
     }
   }
 
@@ -1043,7 +1065,7 @@ export default function WorkspaceHubPage() {
                   <div className="max-w-md pt-2">
                     <h3 className="font-bold text-2xl font-space mb-2">Add Team Member</h3>
                     <p className="text-sm font-medium">
-                      Add a new team member and instantly generate a secure 6-character password for them.
+                      Add a team member, issue a secure temporary password, then approve access when you are ready.
                     </p>
                   </div>
 
@@ -1117,24 +1139,40 @@ export default function WorkspaceHubPage() {
                   </div>
                 )}
 
+                {teamActionMessage && (
+                  <div role="status" aria-live="polite" className="mt-6 p-3 bg-[var(--paper-lift)] border-2 border-black text-sm font-bold">
+                    {teamActionMessage}
+                  </div>
+                )}
+
                 {/* Pending Approvals Section */}
                 {workspaceMembers.filter(m => m.status === 'Pending Approval').length > 0 && (
                   <div className="mt-8">
                     <h4 className="text-sm font-bold uppercase tracking-widest border-b-2 border-black pb-2 mb-4">Pending Approvals</h4>
                     <div className="flex flex-col gap-2">
                       {workspaceMembers.filter(m => m.status === 'Pending Approval').map(member => (
-                        <div key={member.id} className="flex justify-between items-center p-4 bg-[var(--paper-lift)] border-2 border-black shadow-[4px_4px_0_#1a1a1a]">
+                        <div key={member.user_id} className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 p-4 bg-[var(--paper-lift)] border-2 border-black shadow-[4px_4px_0_#1a1a1a]">
                           <div className="flex flex-col gap-0.5">
                             <p className="font-bold text-sm">{member.full_name}</p>
                             <p className="font-medium text-black/60 text-xs">{member.email}</p>
-                            <p className="text-[10px] uppercase tracking-wider text-yellow-600 font-bold mt-1">Pending Approval • {member.role}</p>
+                            <p className="text-[10px] uppercase tracking-wider text-yellow-700 font-bold mt-1">Pending Approval · {member.role}</p>
                           </div>
-                          <button 
-                            onClick={() => handleApproveMember(member.user_id)}
-                            className="px-4 py-2 bg-[var(--gold)] border-2 border-black text-black text-xs font-bold uppercase tracking-wider hover:-translate-y-0.5 hover:shadow-[2px_2px_0_#1a1a1a] transition-all"
-                          >
-                            Approve Access
-                          </button>
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              onClick={() => handleRemoveMember(member.user_id, true)}
+                              disabled={memberAction.userId === member.user_id}
+                              className="px-4 py-2 bg-white border-2 border-black text-black text-xs font-bold uppercase tracking-wider hover:bg-red-600 hover:text-white disabled:opacity-50 transition-colors"
+                            >
+                              {memberAction.userId === member.user_id && memberAction.type === 'remove' ? 'Deleting...' : 'Delete Member'}
+                            </button>
+                            <button
+                              onClick={() => handleApproveMember(member.user_id)}
+                              disabled={memberAction.userId === member.user_id}
+                              className="px-4 py-2 bg-[var(--gold)] border-2 border-black text-black text-xs font-bold uppercase tracking-wider hover:-translate-y-0.5 hover:shadow-[2px_2px_0_#1a1a1a] disabled:opacity-50 transition-all"
+                            >
+                              {memberAction.userId === member.user_id && memberAction.type === 'approve' ? 'Approving...' : 'Approve Access'}
+                            </button>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -1147,7 +1185,7 @@ export default function WorkspaceHubPage() {
                     <h4 className="text-sm font-bold uppercase tracking-widest border-b-2 border-black pb-2 mb-4">Active Team Members</h4>
                     <div className="flex flex-col gap-2">
                       {workspaceMembers.filter(m => m.status === 'Active').map(member => (
-                        <div key={member.id} className="flex justify-between items-center p-4 bg-white border-2 border-black shadow-[4px_4px_0_#1a1a1a]">
+                        <div key={member.user_id} className="flex justify-between items-center p-4 bg-white border-2 border-black shadow-[4px_4px_0_#1a1a1a]">
                           <div className="flex flex-col gap-0.5">
                             <p className="font-bold text-sm flex items-center">
                               {member.full_name} 
@@ -1158,14 +1196,15 @@ export default function WorkspaceHubPage() {
                               )}
                             </p>
                             <p className="font-medium text-black/60 text-xs">{member.email}</p>
-                            <p className="text-[10px] uppercase tracking-wider text-green-600 font-bold mt-1">Active • {member.role}</p>
+                            <p className="text-[10px] uppercase tracking-wider text-green-700 font-bold mt-1">Active · {member.role}</p>
                           </div>
                           {member.user_id !== currentUser?.id && (currentUserRole === 'Owner' || currentUserRole === 'Admin') && (
                             <button 
                               onClick={() => handleRemoveMember(member.user_id)}
-                              className="px-4 py-2 bg-black text-white text-xs font-bold uppercase tracking-wider hover:bg-red-600 transition-colors"
+                              disabled={memberAction.userId === member.user_id}
+                              className="px-4 py-2 bg-black text-white text-xs font-bold uppercase tracking-wider hover:bg-red-600 disabled:opacity-50 transition-colors"
                             >
-                              Remove Member
+                              {memberAction.userId === member.user_id ? 'Removing...' : 'Remove Member'}
                             </button>
                           )}
                         </div>

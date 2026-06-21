@@ -65,7 +65,10 @@ def get_user_workspaces(db: Session, user_id: int) -> List[Workspace]:
     """
     Retrieve all workspaces a specific user belongs to.
     """
-    return db.query(Workspace).join(WorkspaceMember).filter(WorkspaceMember.user_id == user_id).all()
+    return db.query(Workspace).join(WorkspaceMember).filter(
+        WorkspaceMember.user_id == user_id,
+        WorkspaceMember.status == "Active"
+    ).all()
 
 def delete_workspace(db: Session, workspace_id: str) -> bool:
     """
@@ -295,9 +298,15 @@ def remove_workspace_member(db: Session, workspace_id: str, user_id: int) -> boo
             detail="Workspace Owner cannot be removed from the workspace. Transfer ownership first."
         )
         
+    # Removing someone from one workspace must not destroy their account or
+    # memberships in other workspaces. Delete the account only when this is
+    # its sole membership (the usual case for a not-yet-approved direct add).
     user = db.query(User).filter(User.id == user_id).first()
-    if user:
-        db.delete(user) # Cascades to WorkspaceMember
+    membership_count = db.query(WorkspaceMember).filter(
+        WorkspaceMember.user_id == user_id
+    ).count()
+    if user and membership_count == 1 and membership.status == "Pending Approval":
+        db.delete(user)
     else:
         db.delete(membership)
         
@@ -305,7 +314,6 @@ def remove_workspace_member(db: Session, workspace_id: str, user_id: int) -> boo
     return True
 
 import string
-import random
 
 def add_workspace_member_direct(db: Session, workspace_id: str, full_name: str, email: str, role: str) -> dict:
     email_clean = email.lower().strip()
@@ -328,8 +336,10 @@ def add_workspace_member_direct(db: Session, workspace_id: str, full_name: str, 
                 detail="User is already a member of this workspace."
             )
     else:
-        # 2. Generate random 6 character password
-        generated_password = ''.join(random.choices(string.ascii_letters + string.digits, k=6))
+        # Generate a cryptographically secure temporary password. Twelve
+        # characters gives substantially more entropy than the old 6-char key.
+        alphabet = string.ascii_letters + string.digits
+        generated_password = ''.join(secrets.choice(alphabet) for _ in range(12))
         
         # 3. Create User
         user_create = UserCreate(
@@ -354,18 +364,29 @@ def add_workspace_member_direct(db: Session, workspace_id: str, full_name: str, 
     
     return {
         "member": member,
+        "member_data": {
+            "user_id": user.id,
+            "email": user.email,
+            "full_name": user.full_name,
+            "role": member.role,
+            "status": member.status,
+            "joined_at": member.joined_at,
+        },
         "generated_password": generated_password,
         "is_existing_user": is_existing_user
     }
 
-def approve_workspace_member(db: Session, workspace_id: str, user_id: int) -> bool:
+def approve_workspace_member(db: Session, workspace_id: str, user_id: int):
     member = db.query(WorkspaceMember).filter(
         WorkspaceMember.workspace_id == workspace_id,
         WorkspaceMember.user_id == user_id
     ).first()
     
     if not member:
-        return False
+        return None
+
+    if member.status == "Active":
+        return member
         
     member.status = "Active"
     
@@ -396,7 +417,8 @@ def approve_workspace_member(db: Session, workspace_id: str, user_id: int) -> bo
                 db.add(dm_channel)
 
     db.commit()
-    return True
+    db.refresh(member)
+    return member
 
 def get_workspace_invitations(db: Session, workspace_id: str) -> List[WorkspaceInvitation]:
     """

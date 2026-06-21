@@ -34,6 +34,14 @@ class RequireWorkspaceRole:
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Access Denied: You are not a member of this workspace."
             )
+
+        # Pending users must never be able to bypass the approval screen by
+        # calling workspace APIs directly.
+        if membership.status != "Active":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access pending: a Team Head must approve your membership first."
+            )
             
         # 3. Deny if role is unauthorized
         if membership.role not in self.allowed_roles:

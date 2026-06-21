@@ -101,14 +101,14 @@ export default function WorkspacesPage() {
           ) : (
             <div className="workspace-list">
               {workspaces.map((workspace) => (
-                <button
+                <Link
                   key={workspace.id}
-                  onClick={() => router.push(`/workspaces/${workspace.id}`)}
+                  href={`/workspaces/${workspace.id}`}
                   className="workspace-card"
                 >
                   <h3>{workspace.name}</h3>
                   <span>ID: {workspace.id}</span>
-                </button>
+                </Link>
               ))}
             </div>
           )}

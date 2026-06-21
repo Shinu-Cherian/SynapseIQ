@@ -1,5 +1,5 @@
 from typing import List
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.modules.auth.dependencies import get_current_user
@@ -140,12 +140,13 @@ def get_members(
 def add_member_direct(
     workspace_id: str,
     add_in: schemas.WorkspaceMemberAddDirect,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     # Guard: Only Workspace Owners or Admins can add new members directly
     current_member: WorkspaceMember = Depends(RequireWorkspaceRole(["Owner", "Admin"]))
 ):
     """
-    Directly adds a member and generates a 6-character password for them.
+    Directly adds a member and generates a secure temporary password for them.
     The new member will be in 'Pending Approval' status.
     """
     result = services.add_workspace_member_direct(
@@ -158,23 +159,24 @@ def add_member_direct(
     
     # Broadcast member added
     from app.modules.chat.websocket_manager import manager
-    import asyncio
     payload = {
         "type": "WORKSPACE_UPDATE",
         "action": "member_added"
     }
-    asyncio.create_task(manager.broadcast_to_workspace(payload, workspace_id))
+    background_tasks.add_task(manager.broadcast_to_workspace, payload, workspace_id)
     
     return {
         "message": f"User {add_in.full_name} added to workspace.",
         "generated_password": result.get("generated_password"),
-        "is_existing_user": result.get("is_existing_user")
+        "is_existing_user": result.get("is_existing_user"),
+        "member": result.get("member_data")
     }
 
 @router.patch("/{workspace_id}/members/{user_id}/approve")
 def approve_member(
     workspace_id: str,
     user_id: int,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     # Guard: Only Workspace Owners or Admins can approve members
     current_member: WorkspaceMember = Depends(RequireWorkspaceRole(["Owner", "Admin"]))
@@ -182,32 +184,39 @@ def approve_member(
     """
     Approves a pending workspace member, changing their status to Active.
     """
-    success = services.approve_workspace_member(db, workspace_id=workspace_id, user_id=user_id)
-    if not success:
+    member = services.approve_workspace_member(db, workspace_id=workspace_id, user_id=user_id)
+    if not member:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Member not found")
         
     # Broadcast member approved
     from app.modules.chat.websocket_manager import manager
-    import asyncio
     payload = {
         "type": "WORKSPACE_UPDATE",
         "action": "member_approved",
         "user_id": user_id
     }
-    asyncio.create_task(manager.broadcast_to_workspace(payload, workspace_id))
+    background_tasks.add_task(manager.broadcast_to_workspace, payload, workspace_id)
     
-    return {"message": "Member approved successfully"}
+    return {
+        "message": "Member approved successfully",
+        "member": {
+            "user_id": member.user_id,
+            "role": member.role,
+            "status": member.status,
+        }
+    }
 
 @router.delete("/{workspace_id}/members/{user_id}")
 def remove_member(
     workspace_id: str,
     user_id: int,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     # Guard: Only Owner or Admin can delete members
     current_member: WorkspaceMember = Depends(RequireWorkspaceRole(["Owner", "Admin"]))
 ):
     """
-    Removes a member from the workspace and deletes their user account.
+    Removes a member from the workspace and revokes their workspace access.
     - Owner can remove anyone (except self).
     - Admin can only remove normal Members.
     """
@@ -224,7 +233,11 @@ def remove_member(
         )
         
     # Enforce permission hierarchy: Admin cannot delete other Admins or Owners
-    if current_member.role == "Admin" and target_member.role in ["Owner", "Admin"]:
+    if (
+        current_member.role == "Admin"
+        and target_member.role in ["Owner", "Admin"]
+        and target_member.status == "Active"
+    ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access Denied: Admins can only remove normal Members."
@@ -239,13 +252,12 @@ def remove_member(
         
     # Broadcast member removed
     from app.modules.chat.websocket_manager import manager
-    import asyncio
     payload = {
         "type": "WORKSPACE_UPDATE",
         "action": "member_removed",
         "user_id": user_id
     }
-    asyncio.create_task(manager.broadcast_to_workspace(payload, workspace_id))
+    background_tasks.add_task(manager.broadcast_to_workspace, payload, workspace_id)
         
     return {"message": "Member removed successfully"}
 
