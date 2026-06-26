@@ -161,7 +161,7 @@ def generate_meeting_intelligence(db: Session, meeting_id: int) -> MeetingNote:
         "Content-Type": "application/json"
     }
     payload = {
-        "model": "llama-3.1-8b-instant", # Llama 3 model
+        "model": "gpt-oss-20b", # Recommended replacement model
         "messages": [
             {
                 "role": "system",

@@ -195,7 +195,7 @@ def query_ai_brain(db: Session, workspace_id: str, question: str) -> Dict[str, A
     user_prompt = f"Live Database Metrics:\n{live_state_context}\n\nDocument Context:\n{context_str}\n\nQuestion: {question}\n\nAnswer:"
     
     payload = {
-        "model": "llama-3.1-8b-instant",
+        "model": "gpt-oss-20b",
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
